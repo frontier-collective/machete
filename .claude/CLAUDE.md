@@ -23,6 +23,10 @@ Git toolset CLI — `@frontier-collective/machete`
 
 - `machete init` — Initialize `.macheterc` in the current repo (detects remotes)
 - `machete config` — Read/write config values; credentials auto-route to secrets files
+- `machete commit` — AI-powered commit messages via Claude (Conventional Commits format)
+  - `--dry-run`
+- `machete release` — Full git-flow release: version bump, changelog, branch/tag management, GH release, npm publish
+  - `--dry-run`, `--noai`, `--no-publish`
 - `machete prune` — Delete local branches with no remote equivalent
   - `--dry-run`, `--force`, `--remote <name>`, `-i`/`--interactive`
 

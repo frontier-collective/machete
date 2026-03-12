@@ -159,7 +159,7 @@ export async function runRelease(args: ParsedArgs): Promise<void> {
 
   // ── Push ───────────────────────────────────────────────────────────
 
-  const shouldPush = await confirm(`Push master, develop, and tags to origin?`);
+  const shouldPush = await confirm(`Push master, develop, and tags to origin?`, true);
   if (shouldPush) {
     pushWithTags("origin", ["master", "develop"]);
     success("Pushed to origin.");
@@ -172,7 +172,7 @@ export async function runRelease(args: ParsedArgs): Promise<void> {
   // ── GitHub release ─────────────────────────────────────────────────
 
   if (isGhInstalled() && isGhAuthenticated()) {
-    const shouldGhRelease = await confirm(`Create GitHub release for ${tag}?`);
+    const shouldGhRelease = await confirm(`Create GitHub release for ${tag}?`, true);
     if (shouldGhRelease) {
       const releaseNotes = extractReleaseNotes(newVersion);
       createGhRelease(tag, tag, releaseNotes);
@@ -188,7 +188,7 @@ export async function runRelease(args: ParsedArgs): Promise<void> {
 
   // ── npm publish ────────────────────────────────────────────────────
 
-  const shouldNpmPublish = await confirm("Publish to npm?");
+  const shouldNpmPublish = await confirm("Publish to npm?", true);
   if (shouldNpmPublish) {
     npmPublish();
     success(`Published ${bold(`@frontier-collective/machete@${newVersion}`)} to npm.`);

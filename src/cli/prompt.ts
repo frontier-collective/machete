@@ -1,15 +1,22 @@
 import { createInterface } from "node:readline";
 
-export async function confirm(message: string): Promise<boolean> {
+export async function confirm(message: string, defaultYes = false): Promise<boolean> {
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
+  const hint = defaultYes ? "(Y/n)" : "(y/N)";
+
   return new Promise((resolve) => {
-    rl.question(`${message} (y/N) `, (answer) => {
+    rl.question(`${message} ${hint} `, (answer) => {
       rl.close();
-      resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes");
+      const trimmed = answer.trim().toLowerCase();
+      if (trimmed === "") {
+        resolve(defaultYes);
+        return;
+      }
+      resolve(trimmed === "y" || trimmed === "yes");
     });
   });
 }
