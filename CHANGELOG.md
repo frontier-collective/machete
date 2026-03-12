@@ -2,6 +2,22 @@
 
 All notable changes to Machete are documented here.
 
+## [0.1.1] - 2026-03-12
+
+### Fixes
+
+- Fix `release --dry-run` to display the real computed next version (e.g. `v0.1.0 → v0.1.1`) instead of a placeholder suffix
+
+### Improvements
+
+- Default confirmation prompts for push, GitHub release, and npm publish steps to **yes**, so pressing Enter accepts the suggested action
+
+### Documentation
+
+- Add `commit` and `release` command docs to the README, including usage examples and available flags
+- Add an Authors section to the README
+
+
 ## [0.1.0] - 2026-03-12
 
 ### Features

@@ -2,9 +2,13 @@
 
 A machete clears the path. It doesn't fell the tree or till the soil — it cuts through the undergrowth so you can move. Dead branches, tangled vines, overgrown trails. One swing and they're gone.
 
-Machete does the same for your git repositories. Stale branches pile up after every sprint — merged PRs, abandoned experiments, hotfixes from three months ago. They clutter your branch list, slow your tab-completion, and make `git branch` useless. Machete cuts them away so you can see what matters.
+Machete does the same for your git repositories. Stale branches, messy commit messages, manual release chores — all undergrowth. Machete cuts through it with AI-powered commits, automated git-flow releases, and branch cleanup that just works.
 
 Part of the [Frontier Collective](https://www.npmjs.com/org/frontier-collective) toolkit.
+
+## Authors
+
+- **Derek Clapham** — derek.clapham@gmail.com
 
 ## Install
 
@@ -83,6 +87,52 @@ machete config -g anthropicApiKey sk-ant-...
 machete config --list
 ```
 
+### `machete commit`
+
+Generate an AI-powered commit message and commit staged changes. Requires an Anthropic API key.
+
+```bash
+# Stage, generate message, and commit
+machete commit
+
+# Preview the generated message without committing
+machete commit --dry-run
+```
+
+**What it does:**
+
+1. Checks for staged and unstaged files
+2. If unstaged files exist, offers to stage them
+3. Sends the staged diff to Claude to generate a Conventional Commits message
+4. Displays the message and commits
+
+### `machete release`
+
+Full git-flow release pipeline: version bump, AI-generated changelog, branch management, GitHub release, and npm publish.
+
+```bash
+# Run a minor release
+machete release minor
+
+# Preview without making changes
+machete release patch --dry-run
+
+# Skip AI changelog (use raw git log)
+machete release minor --noai
+
+# Stop after push (skip GH release + npm)
+machete release major --no-publish
+```
+
+**What it does:**
+
+1. Validates you're on `develop` with a clean tree
+2. Runs build and tests
+3. Bumps version (`patch`, `minor`, or `major`)
+4. Generates changelog with Claude (or raw git log with `--noai`)
+5. Creates a `release/X.Y.Z` branch, commits, merges to `master`, tags, merges back to `develop`
+6. Prompts to push, create a GitHub release (requires `gh` CLI), and publish to npm
+
 ### `machete prune`
 
 Delete local branches that have no remote equivalent. Useful for cleaning up after merged pull requests.
@@ -135,6 +185,10 @@ The `~/.machete/` directory is created automatically on install.
 Configuration is merged in order: **defaults → global config → global credentials → local config → local secrets**
 
 Credential keys (`anthropicApiKey`, `githubToken`, `bitbucketToken`) are automatically routed to the appropriate secrets file.
+
+## Contributors
+
+Contributions welcome! See the git log for a full list of contributors.
 
 ## License
 
