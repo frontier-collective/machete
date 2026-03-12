@@ -38,6 +38,11 @@ switch (command) {
     await runConfig(args);
     break;
   }
+  case "release": {
+    const { runRelease } = await import("./commands/release.js");
+    await runRelease(args);
+    break;
+  }
   case "prune": {
     const { runPrune } = await import("./commands/prune.js");
     await runPrune(args);

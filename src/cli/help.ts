@@ -22,6 +22,7 @@ ${BOLD}COMMANDS${RESET}
   ${GREEN}commit${RESET}    Generate an AI commit message and commit staged changes ${DIM}(--dry-run)${RESET}
   ${GREEN}config${RESET}    Read or write configuration values ${DIM}(-g, --list, --add, --remove)${RESET}
   ${GREEN}prune${RESET}     Delete local branches with no remote equivalent ${DIM}(--dry-run, --force, -i)${RESET}
+  ${GREEN}release${RESET}   Git-flow release with changelog, GH release, and npm publish ${DIM}(--dry-run, --noai, --no-publish)${RESET}
 
 ${BOLD}OPTIONS${RESET}
   ${GREEN}-h, --help${RESET}       Show this help message
@@ -37,6 +38,12 @@ ${BOLD}CONFIG USAGE${RESET}
   ${GREEN}machete config${RESET} ${YELLOW}<key>${RESET} --remove ${YELLOW}<value>${RESET}  Remove from an array
   ${GREEN}machete config${RESET} --list                  Show all with sources
   ${DIM}Use -g to write to global config (~/.machete/)${RESET}
+
+${BOLD}RELEASE USAGE${RESET}
+  ${GREEN}machete release${RESET} ${YELLOW}<patch|minor|major>${RESET}
+  ${GREEN}--dry-run${RESET}        Preview changelog and version bump without making changes
+  ${GREEN}--noai${RESET}           Use raw git log instead of Claude for changelog
+  ${GREEN}--no-publish${RESET}     Stop after push ${DIM}(skip GH release + npm publish)${RESET}
 
 ${BOLD}PRUNE OPTIONS${RESET}
   ${GREEN}--dry-run${RESET}        Show branches that would be deleted without deleting
