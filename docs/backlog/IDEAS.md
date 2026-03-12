@@ -37,8 +37,8 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 
 ## Infrastructure
 
-- [ ] Add unit tests for config merging, arg parsing, branch filtering, and credential masking
-- [ ] Add integration tests that exercise the full release flow in a temp git repo
+- [ ] `MACH-0002` Add unit tests for config merging, arg parsing, branch filtering, and credential masking
+- [ ] `MACH-0003` Add integration tests that exercise the full release flow in a temp git repo
 - [ ] Add CI pipeline (GitHub Actions) for build + test on PRs
 - [ ] Add shell completions (bash, zsh, fish) for machete commands and flags
 - [ ] Add `--verbose` global flag for debug output across all commands
