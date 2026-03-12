@@ -131,6 +131,10 @@ export function writeChangelog(newVersion: string, body: string, dryRun: boolean
     return;
   }
 
+  console.log();
+  console.log(newEntry);
+  console.log();
+
   if (existsSync(changelogPath)) {
     const existing = readFileSync(changelogPath, "utf-8");
     const content = existing.replace(
