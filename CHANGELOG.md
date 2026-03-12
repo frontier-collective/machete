@@ -2,6 +2,24 @@
 
 All notable changes to Machete are documented here.
 
+## [0.1.3] - 2026-03-12
+
+### Features
+
+- Prompt to push to origin after a successful AI-powered commit, streamlining the commit → push workflow
+
+### Internal
+
+- Add unit tests for argument parsing, config loading/writing, and core git operations
+- Add integration tests covering the full release flow, changelog generation, and edge cases
+- Export `computeNextVersion` from the release module to support direct testing
+- Initialize Whetstone database for constraint and decision tracking
+
+### Documentation
+
+- Add a lightweight backlog system with a `README`, `IDEAS.md`, agent instructions, and initial story stubs for the `branch` command, unit tests, and integration tests
+
+
 ## [0.1.2] - 2026-03-12
 
 ### Fixes
