@@ -1,4 +1,7 @@
 import { execSync } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 export function exec(command: string): string {
   return execSync(command, { encoding: "utf-8" }).trim();
@@ -104,17 +107,25 @@ export function createBranch(branch: string): void {
   exec(`git checkout -b ${branch}`);
 }
 
+function withTempFile(content: string, fn: (path: string) => void): void {
+  const tmpPath = join(tmpdir(), `machete-msg-${Date.now()}.txt`);
+  writeFileSync(tmpPath, content);
+  try {
+    fn(tmpPath);
+  } finally {
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+  }
+}
+
 export function mergeNoFf(branch: string, message: string): void {
-  execSync(`git merge --no-ff "${branch}" -F -`, {
-    input: message,
-    encoding: "utf-8",
+  withTempFile(message, (msgFile) => {
+    execSync(`git merge --no-ff "${branch}" -F "${msgFile}"`, { encoding: "utf-8" });
   });
 }
 
 export function createTag(tag: string, message: string): void {
-  execSync(`git tag -a "${tag}" -F -`, {
-    input: message,
-    encoding: "utf-8",
+  withTempFile(message, (msgFile) => {
+    execSync(`git tag -a "${tag}" -F "${msgFile}"`, { encoding: "utf-8" });
   });
 }
 

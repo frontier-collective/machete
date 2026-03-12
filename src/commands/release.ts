@@ -28,16 +28,22 @@ import {
 import { success, error, warning, info, dim, bold } from "../cli/format.js";
 import { confirm } from "../cli/prompt.js";
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const VALID_BUMPS = ["patch", "minor", "major"] as const;
 type Bump = (typeof VALID_BUMPS)[number];
+
+function readVersionFromDisk(): string {
+  const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
+  return pkg.version;
+}
 
 function bumpVersion(bump: Bump): string {
   execSync(`npm version ${bump} --no-git-tag-version`, {
     encoding: "utf-8",
     stdio: "pipe",
   });
-  return getVersion();
+  return readVersionFromDisk();
 }
 
 export async function runRelease(args: ParsedArgs): Promise<void> {
