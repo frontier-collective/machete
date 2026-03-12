@@ -122,6 +122,14 @@ export function stageFiles(files: string[]): void {
   exec(`git add ${files.join(" ")}`);
 }
 
+export function getRootCommit(): string {
+  try {
+    return exec("git rev-list --max-parents=0 HEAD");
+  } catch {
+    return "";
+  }
+}
+
 export function getLatestTag(): string {
   try {
     return exec("git tag --sort=-v:refname").split("\n")[0] || "";

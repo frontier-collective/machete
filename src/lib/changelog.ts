@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import {
   getLatestTag,
+  getRootCommit,
   getCommitLog,
   getCommitMessages,
   getDiffStat,
@@ -21,8 +22,8 @@ export interface ChangelogContext {
 
 export function gatherContext(newVersion: string): ChangelogContext {
   const prevTag = getLatestTag();
-  const range = prevTag ? `${prevTag}..HEAD` : "";
-  const fallbackRange = prevTag ? `${prevTag}..HEAD` : "HEAD~50..HEAD";
+  const rangeBase = prevTag || getRootCommit();
+  const range = rangeBase ? `${rangeBase}..HEAD` : "";
 
   return {
     newVersion,
@@ -30,8 +31,8 @@ export function gatherContext(newVersion: string): ChangelogContext {
     range,
     commitMessages: getCommitMessages(range || "HEAD"),
     rawLog: getCommitLog(range || "HEAD"),
-    diffStat: getDiffStat(fallbackRange),
-    fullDiff: getFullDiff(fallbackRange),
+    diffStat: getDiffStat(range || "HEAD"),
+    fullDiff: getFullDiff(range || "HEAD"),
   };
 }
 
