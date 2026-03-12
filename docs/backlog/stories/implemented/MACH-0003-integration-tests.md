@@ -1,9 +1,10 @@
 ---
 id: MACH-0003
 title: Integration tests for release flow
-status: draft
+status: done
 priority: high
 created: 2026-03-13
+completed: 2026-03-13
 ---
 
 # MACH-0003: Integration tests for release flow

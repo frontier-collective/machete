@@ -38,7 +38,7 @@ function readVersionFromDisk(): string {
   return pkg.version;
 }
 
-function computeNextVersion(current: string, bump: Bump): string {
+export function computeNextVersion(current: string, bump: Bump): string {
   const [major, minor, patch] = current.split(".").map(Number);
   switch (bump) {
     case "major": return `${major + 1}.0.0`;
