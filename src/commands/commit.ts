@@ -8,6 +8,7 @@ import {
   getStagedDiff,
   getRecentCommitMessages,
   commitWithMessage,
+  pushWithTags,
 } from "../lib/git.js";
 import { loadConfig } from "../lib/config.js";
 import { success, error, warning, info, dim, bold } from "../cli/format.js";
@@ -165,5 +166,11 @@ export async function runCommit(args: ParsedArgs): Promise<void> {
     const e = err as Record<string, unknown>;
     warning(`Commit failed: ${e.message || String(err)}`);
     process.exit(1);
+  }
+
+  const shouldPush = await confirm(`Push to origin/${branch}?`, true);
+  if (shouldPush) {
+    pushWithTags("origin", [branch]);
+    success("Pushed to origin.");
   }
 }
