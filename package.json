@@ -1,0 +1,47 @@
+{
+  "name": "@frontier-collective/machete",
+  "version": "0.0.1",
+  "description": "A sharp CLI toolset for managing git repositories",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "machete": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "node --test dist/**/*.test.js",
+    "postinstall": "node scripts/postinstall.mjs",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "git",
+    "cli",
+    "branch",
+    "prune",
+    "cleanup",
+    "toolset"
+  ],
+  "author": "Frontier Collective",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.js.map",
+    "scripts/postinstall.mjs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/frontier-collective/machete.git"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.4.0",
+    "typescript": "^5.9.3"
+  }
+}
