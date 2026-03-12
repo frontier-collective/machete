@@ -2,6 +2,13 @@
 
 All notable changes to Machete are documented here.
 
+## [0.1.2] - 2026-03-12
+
+### Fixes
+
+- Fix `--dry-run` mode for changelog generation to print the new changelog entry instead of silently skipping it
+
+
 ## [0.1.1] - 2026-03-12
 
 ### Fixes
