@@ -38,6 +38,15 @@ function readVersionFromDisk(): string {
   return pkg.version;
 }
 
+function computeNextVersion(current: string, bump: Bump): string {
+  const [major, minor, patch] = current.split(".").map(Number);
+  switch (bump) {
+    case "major": return `${major + 1}.0.0`;
+    case "minor": return `${major}.${minor + 1}.0`;
+    case "patch": return `${major}.${minor}.${patch + 1}`;
+  }
+}
+
 function bumpVersion(bump: Bump): string {
   execSync(`npm version ${bump} --no-git-tag-version`, {
     encoding: "utf-8",
@@ -99,15 +108,13 @@ export async function runRelease(args: ParsedArgs): Promise<void> {
 
   // ── Version bump ───────────────────────────────────────────────────
 
-  if (dryRun) {
-    info(`Would bump ${bold(bump)} from v${currentVersion}.`);
-  }
-
-  const newVersion = dryRun ? `${currentVersion}-dryrun` : bumpVersion(bump);
+  const newVersion = dryRun ? computeNextVersion(currentVersion, bump) : bumpVersion(bump);
   const releaseBranch = `release/${newVersion}`;
   const tag = `v${newVersion}`;
 
-  if (!dryRun) {
+  if (dryRun) {
+    info(`Would bump ${bold(bump)}: v${currentVersion} → ${bold(tag)}`);
+  } else {
     success(`Bumped to ${bold(tag)}`);
   }
 
