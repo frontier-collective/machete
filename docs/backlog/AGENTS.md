@@ -22,15 +22,15 @@ Instructions for AI agents working with the Machete backlog system.
 2. Update the story file status from `draft` or `ready` to `in-progress`.
 3. Use the `[MACH-NNNN]` prefix in all related commit messages per the project's Conventional Commits format.
 
-## Completing an Idea
+## Completing a Story
 
-All three of these steps must happen together:
+**IMPORTANT:** When you finish implementing a story, you MUST complete all three of these steps immediately — do not wait for the user to ask.
 
 1. **Update the story file**: set `status: done` and add `completed: YYYY-MM-DD` to the frontmatter.
 2. **Move the story file**: from `stories/` to `stories/implemented/`.
 3. **Update IDEAS.md**: check the box (`- [x]`) and move the line to the **Done** section at the bottom using the format: `` - [x] `MACH-NNNN` (YYYY-MM-DD) Description ``
 
-Never skip any of these steps. They must all happen in the same commit.
+Never skip any of these steps. They must all happen together.
 
 ## Dropping a Story
 
