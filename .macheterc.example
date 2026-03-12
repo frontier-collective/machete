@@ -1,0 +1,4 @@
+{
+  "protectedBranches": ["main", "master", "develop"],
+  "defaultRemote": "origin"
+}
