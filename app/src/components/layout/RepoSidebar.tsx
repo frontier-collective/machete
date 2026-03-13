@@ -14,11 +14,18 @@ import {
   ArrowUp,
   ArrowDown,
   Plus,
+  MonitorSmartphone,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useRepoPath, useStatus, useSelection, useLayout } from "@/hooks/useRepo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -178,6 +185,7 @@ export function RepoSidebar({
     : null;
 
   return (
+    <TooltipProvider delayDuration={400}>
     <aside className="flex h-full flex-col bg-muted/30 shrink-0" style={{ width: width ?? 220 }}>
       {/* Repo selector */}
       <div className="flex items-center gap-2 border-b px-3 py-2 shrink-0">
@@ -353,6 +361,7 @@ export function RepoSidebar({
         onCreated={fetchSidebarData}
       />
     </aside>
+    </TooltipProvider>
   );
 }
 
@@ -461,33 +470,70 @@ function BranchTreeView({
                   onDoubleClick={() => !b.current && onCheckout(b.name)}
                 >
                   {showDirtyDot ? (
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">Uncommitted changes</TooltipContent>
+                    </Tooltip>
                   ) : safetyDot ? (
-                    <span className={`inline-block h-1.5 w-1.5 rounded-full ${safetyDot} shrink-0`} />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${safetyDot} shrink-0`} />
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="text-xs">
+                        {safetyDot.includes("green") ? "Safe to delete" : safetyDot.includes("blue") ? "Protected" : "Unsafe to delete"}
+                      </TooltipContent>
+                    </Tooltip>
                   ) : (
                     <span className="inline-block h-1.5 w-1.5 shrink-0" />
                   )}
                   <span className="truncate">{node.name}</span>
-                  {/* Right side: loading spinner, padlock, or ahead/behind */}
+                  {/* Right side: loading spinner, padlock, local-only, or ahead/behind */}
                   <span className="ml-auto flex items-center gap-1.5 shrink-0">
                     {isChecking && <Loader2 className="h-3 w-3 animate-spin" />}
-                    {isProtected && <Lock className="h-3 w-3 text-muted-foreground/50" />}
-                    {(b.ahead > 0 || b.behind > 0) && (
-                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70 font-mono">
-                        {b.behind > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            {b.behind}
-                            <ArrowDown className="h-2.5 w-2.5" />
-                          </span>
-                        )}
-                        {b.ahead > 0 && (
-                          <span className="flex items-center gap-0.5">
-                            {b.ahead}
-                            <ArrowUp className="h-2.5 w-2.5" />
-                          </span>
-                        )}
-                      </span>
+                    {isProtected && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Lock className="h-3 w-3 text-muted-foreground/50" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="text-xs">Protected branch</TooltipContent>
+                      </Tooltip>
                     )}
+                    {!b.hasRemote ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <MonitorSmartphone className="h-3 w-3 text-muted-foreground/40" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="text-xs">Local only — no remote tracking branch</TooltipContent>
+                      </Tooltip>
+                    ) : (b.ahead > 0 || b.behind > 0) ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70 font-mono">
+                            {b.behind > 0 && (
+                              <span className="flex items-center gap-0.5">
+                                {b.behind}
+                                <ArrowDown className="h-2.5 w-2.5" />
+                              </span>
+                            )}
+                            {b.ahead > 0 && (
+                              <span className="flex items-center gap-0.5">
+                                {b.ahead}
+                                <ArrowUp className="h-2.5 w-2.5" />
+                              </span>
+                            )}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="text-xs">
+                          {b.ahead > 0 && b.behind > 0
+                            ? `${b.ahead} ahead, ${b.behind} behind remote`
+                            : b.ahead > 0
+                            ? `${b.ahead} commit${b.ahead > 1 ? "s" : ""} ahead of remote`
+                            : `${b.behind} commit${b.behind > 1 ? "s" : ""} behind remote`}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                   </span>
                 </button>
               </ContextMenuTrigger>

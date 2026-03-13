@@ -484,13 +484,13 @@ pub async fn set_config_value(
 #[tauri::command]
 pub async fn get_branches(repo_path: String) -> Result<Value, String> {
     off_main(move || {
-        // Local branches with current marker and ahead/behind tracking info
+        // Local branches with current marker, upstream tracking, and ahead/behind info
         let current = run_git(&repo_path, &["branch", "--show-current"])?;
         let output = run_git(
             &repo_path,
             &[
                 "for-each-ref",
-                "--format=%(refname:short)|%(upstream:track)",
+                "--format=%(refname:short)|%(upstream:short)|%(upstream:track)",
                 "refs/heads/",
             ],
         )?;
@@ -498,9 +498,12 @@ pub async fn get_branches(repo_path: String) -> Result<Value, String> {
             .lines()
             .filter(|l| !l.is_empty())
             .map(|line| {
-                let parts: Vec<&str> = line.splitn(2, '|').collect();
+                let parts: Vec<&str> = line.splitn(3, '|').collect();
                 let name = parts[0].trim();
-                let track = parts.get(1).unwrap_or(&"").trim();
+                let upstream = parts.get(1).unwrap_or(&"").trim();
+                let track = parts.get(2).unwrap_or(&"").trim();
+
+                let has_remote = !upstream.is_empty();
 
                 // Parse "[ahead N, behind M]" or "[ahead N]" or "[behind M]"
                 let mut ahead: u64 = 0;
@@ -522,6 +525,7 @@ pub async fn get_branches(repo_path: String) -> Result<Value, String> {
                     "current": name == current,
                     "ahead": ahead,
                     "behind": behind,
+                    "hasRemote": has_remote,
                 })
             })
             .collect();

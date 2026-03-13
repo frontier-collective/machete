@@ -83,6 +83,8 @@ export interface BranchInfo {
   current: boolean;
   ahead: number;
   behind: number;
+  /** Whether this branch has a remote tracking branch */
+  hasRemote: boolean;
 }
 
 export interface RemoteInfo {
