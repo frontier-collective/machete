@@ -1,4 +1,5 @@
 import type { ParsedArgs } from "../cli/args.js";
+import type { CommitContextJson, FileStatusJson } from "../lib/types.js";
 import {
   isGitRepo,
   getCurrentBranch,
@@ -100,6 +101,52 @@ export async function runCommit(args: ParsedArgs): Promise<void> {
   }
 
   const dryRun = args.dryRun === true;
+  const jsonMode = args.json === true;
+
+  // JSON mode: --json returns context, --json --generate returns AI message
+  if (jsonMode) {
+    const staged = getStagedFiles();
+    const unstaged = getUnstagedFiles();
+    const stagedStats = getStagedDiffStats();
+    const unstagedStats = getUnstagedDiffStats();
+
+    if (args.generate === true) {
+      // Generate AI commit message and return as JSON
+      if (staged.length === 0) {
+        console.log(JSON.stringify({ error: "No staged files" }));
+        process.exit(1);
+      }
+      const diff = getStagedDiff();
+      if (!diff) {
+        console.log(JSON.stringify({ error: "Staged diff is empty" }));
+        process.exit(1);
+      }
+      const branch = getCurrentBranch();
+      const recentCommits = getRecentCommitMessages(5);
+      const prompt = buildPrompt(branch, recentCommits, diff);
+      try {
+        const message = await generateCommitMessage(config.anthropicApiKey!, prompt);
+        console.log(JSON.stringify({ message }));
+      } catch (err: unknown) {
+        console.log(JSON.stringify({ error: String((err as Error).message || err) }));
+        process.exit(1);
+      }
+      return;
+    }
+
+    const result: CommitContextJson = {
+      branch: getCurrentBranch(),
+      staged: stagedStats.map((s): FileStatusJson => ({
+        file: s.file, added: s.added, removed: s.removed, binary: s.binary,
+      })),
+      unstaged: unstagedStats.map((s): FileStatusJson => ({
+        file: s.file, added: s.added, removed: s.removed, binary: s.binary,
+      })),
+      recentCommits: getRecentCommitMessages(5).split("\n").filter(Boolean),
+    };
+    console.log(JSON.stringify(result));
+    return;
+  }
 
   let staged = getStagedFiles();
   const unstaged = getUnstagedFiles();

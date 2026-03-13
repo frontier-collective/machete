@@ -3,6 +3,7 @@ import { writeFileSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ParsedArgs } from "../cli/args.js";
+import type { PrContextJson, FileStatusJson } from "../lib/types.js";
 import {
   isGitRepo,
   getCurrentBranch,
@@ -205,8 +206,10 @@ export async function runPr(args: ParsedArgs): Promise<void> {
     process.exit(1);
   }
 
+  const jsonMode = args.json === true;
+
   if (!isClean()) {
-    warning("Working tree has uncommitted changes.");
+    if (!jsonMode) warning("Working tree has uncommitted changes.");
   }
 
   // ── Base branch detection ──
@@ -218,31 +221,39 @@ export async function runPr(args: ParsedArgs): Promise<void> {
     baseBranch = explicitBase;
   } else if (config.prBaseBranch) {
     baseBranch = config.prBaseBranch;
-    info(`Base branch: ${bold(baseBranch)} ${dim("(from config)")}`);
+    if (!jsonMode) info(`Base branch: ${bold(baseBranch)} ${dim("(from config)")}`);
   } else {
     const remote = config.defaultRemote || "origin";
     const detected = getRemoteDefaultBranch(remote);
     if (detected) {
-      info(`Base branch: ${bold(detected)} ${dim("(from remote default)")}`);
-      const useDetected = await confirm("Use this base?", true);
-      if (!useDetected) {
-        // Prompt for manual entry
-        const rl = createRl();
-        baseBranch = await new Promise<string>((resolve) => {
-          rl.question("Base branch: ", (answer) => {
-            rl.close();
-            resolve(answer.trim());
-          });
-        });
-        if (!baseBranch) {
-          error("No base branch specified.");
-          process.exit(1);
-        }
-      } else {
+      if (!jsonMode) info(`Base branch: ${bold(detected)} ${dim("(from remote default)")}`);
+      if (jsonMode) {
         baseBranch = detected;
+      } else {
+        const useDetected = await confirm("Use this base?", true);
+        if (!useDetected) {
+          // Prompt for manual entry
+          const rl = createRl();
+          baseBranch = await new Promise<string>((resolve) => {
+            rl.question("Base branch: ", (answer) => {
+              rl.close();
+              resolve(answer.trim());
+            });
+          });
+          if (!baseBranch) {
+            error("No base branch specified.");
+            process.exit(1);
+          }
+        } else {
+          baseBranch = detected;
+        }
       }
     } else {
-      warning("Could not detect remote default branch.");
+      if (!jsonMode) warning("Could not detect remote default branch.");
+      if (jsonMode) {
+        error("Could not detect base branch. Pass --base explicitly.");
+        process.exit(1);
+      }
       const rl = createRl();
       baseBranch = await new Promise<string>((resolve) => {
         rl.question("Base branch: ", (answer) => {
@@ -266,12 +277,55 @@ export async function runPr(args: ParsedArgs): Promise<void> {
   const fileStats = getDiffFilesSinceBase(baseBranch);
 
   if (commits.length === 0) {
+    if (jsonMode) {
+      console.log(JSON.stringify({ error: `No commits found between ${baseBranch} and ${branch}.` }));
+      process.exit(1);
+    }
     error(`No commits found between ${baseBranch} and ${branch}.`);
     process.exit(1);
   }
 
   const totalAdded = fileStats.reduce((sum, f) => sum + f.added, 0);
   const totalRemoved = fileStats.reduce((sum, f) => sum + f.removed, 0);
+
+  // JSON mode
+  if (jsonMode) {
+    const onRemote = branchExistsOnRemote(branch, remote);
+    const upToDate = onRemote ? isBranchUpToDateWithRemote(branch, remote) : false;
+    const aheadCount = onRemote ? getCommitCountAheadOfRemote(branch, remote) : commits.length;
+
+    if (args.generate === true) {
+      // Generate AI title/body and return as JSON
+      const prompt = buildPrPrompt(branch, commitLog, diffStat, fileStats);
+      try {
+        const generated = await generatePr(config.anthropicApiKey!, prompt);
+        console.log(JSON.stringify(generated));
+      } catch (err: unknown) {
+        console.log(JSON.stringify({ error: String((err as Error).message || err) }));
+        process.exit(1);
+      }
+      return;
+    }
+
+    const result: PrContextJson = {
+      branch,
+      baseBranch,
+      commitCount: commits.length,
+      commits,
+      commitLog,
+      filesChanged: fileStats.map((f): FileStatusJson => ({
+        file: f.file, added: f.added, removed: f.removed, binary: f.binary,
+      })),
+      totalAdded,
+      totalRemoved,
+      onRemote,
+      upToDate,
+      aheadCount,
+    };
+    console.log(JSON.stringify(result));
+    return;
+  }
+
   info(
     `${commits.length} commit${commits.length === 1 ? "" : "s"}, ${fileStats.length} file${fileStats.length === 1 ? "" : "s"} changed ${dim(`(${GREEN}+${totalAdded}${RESET} ${RED}-${totalRemoved}${RESET})`)}`
   );

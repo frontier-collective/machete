@@ -1,4 +1,5 @@
 import type { ParsedArgs } from "../cli/args.js";
+import type { ReleasePreviewJson } from "../lib/types.js";
 import {
   isGitRepo,
   getCurrentBranch,
@@ -59,6 +60,21 @@ export async function runRelease(args: ParsedArgs): Promise<void> {
   if (!isGitRepo()) {
     error("Not a git repository.");
     process.exit(1);
+  }
+
+  // JSON mode: return version preview
+  if (args.json === true) {
+    const current = readVersionFromDisk();
+    const result: ReleasePreviewJson = {
+      currentVersion: current,
+      versions: {
+        patch: computeNextVersion(current, "patch"),
+        minor: computeNextVersion(current, "minor"),
+        major: computeNextVersion(current, "major"),
+      },
+    };
+    console.log(JSON.stringify(result));
+    return;
   }
 
   let bump = args._[1] as Bump | undefined;

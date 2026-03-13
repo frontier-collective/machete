@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicoverbruggen/tauri-v2-schema/main/src/tauri.conf.schema.json",
+  "productName": "Machete",
+  "version": "0.1.0",
+  "identifier": "com.frontier-collective.machete",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Machete",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

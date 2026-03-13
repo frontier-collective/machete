@@ -9,7 +9,7 @@ import {
   classifyBranchSafety,
 } from "../lib/git.js";
 import type { ParsedArgs } from "../cli/args.js";
-import type { PruneOptions, PruneResult, BranchSafetyResult } from "../lib/types.js";
+import type { PruneOptions, PruneResult, BranchSafetyResult, PruneClassificationJson } from "../lib/types.js";
 import {
   success,
   warning,
@@ -67,7 +67,8 @@ export async function runPrune(args: ParsedArgs): Promise<void> {
     noInteraction: args.n === true || args.noInteraction === true,
   };
 
-  info(`Fetching from ${bold(options.remote)}...`);
+  const jsonMode = args.json === true;
+  if (!jsonMode) info(`Fetching from ${bold(options.remote)}...`);
   fetchPrune(options.remote);
 
   const currentBranch = getCurrentBranch();
@@ -97,6 +98,19 @@ export async function runPrune(args: ParsedArgs): Promise<void> {
   );
   const safeBranches = safetyResults.filter((r) => r.safe);
   const unsafeBranches = safetyResults.filter((r) => !r.safe);
+
+  // JSON mode: return classification data
+  if (args.json === true) {
+    const result: PruneClassificationJson = {
+      currentBranch,
+      kept,
+      protected: protectedSkipped,
+      safe: safeBranches,
+      unsafe: unsafeBranches,
+    };
+    console.log(JSON.stringify(result));
+    return;
+  }
 
   // Display full summary
   if (kept.length > 0) {
