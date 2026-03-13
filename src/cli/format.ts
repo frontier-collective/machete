@@ -41,3 +41,30 @@ export function protectedBranchList(branches: string[], prefix = ""): void {
     console.log(`${prefix}${GREEN}✓${RESET} ${DIM}${branch} (protected)${RESET}`);
   }
 }
+
+export function keptBranchList(
+  branches: { name: string; reason: string }[],
+  prefix = ""
+): void {
+  for (const { name, reason } of branches) {
+    console.log(`${prefix}${GREEN}✓${RESET} ${name} ${DIM}(${reason})${RESET}`);
+  }
+}
+
+export function deletableBranchList(
+  branches: { name: string; detail: string }[],
+  prefix = ""
+): void {
+  for (const { name, detail } of branches) {
+    console.log(`${prefix}${RED}×${RESET} ${name} ${DIM}(${detail})${RESET}`);
+  }
+}
+
+export function unsafeBranchList(
+  branches: { name: string; detail: string }[],
+  prefix = ""
+): void {
+  for (const { name, detail } of branches) {
+    console.log(`${prefix}${YELLOW}⚠${RESET} ${name} ${DIM}— ${detail}${RESET}`);
+  }
+}

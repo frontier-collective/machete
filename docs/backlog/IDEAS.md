@@ -4,6 +4,7 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 
 ## Commands
 
+- [ ] `MACH-0004` Make `machete prune` safe — verify all commits exist on remote and another local branch before deleting
 - [ ] `MACH-0001` Add `machete branch` — create branches with consistent naming conventions (feature/, bugfix/, hotfix/) with optional ticket ID prefixes
 - [ ] Add `machete log` — pretty-printed git log with graph, author coloring, and relative dates
 - [ ] Add `machete sync` — fetch + rebase current branch onto its upstream, with stash/unstash around dirty trees
