@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execSync, execFileSync } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -584,10 +584,11 @@ export function createPr(
   base: string,
   draft: boolean
 ): string {
-  const draftFlag = draft ? " --draft" : "";
-  const output = execSync(
-    `gh pr create --base "${base}" --title "${title}" --body-file -${draftFlag}`,
-    { input: body, encoding: "utf-8", stdio: ["pipe", "pipe", "inherit"] }
-  ).trim();
+  const args = ["pr", "create", "--base", base, "--title", title, "--body", body];
+  if (draft) args.push("--draft");
+  const output = execFileSync("gh", args, {
+    encoding: "utf-8",
+    stdio: ["pipe", "pipe", "inherit"],
+  }).trim();
   return output;
 }

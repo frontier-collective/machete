@@ -68,3 +68,8 @@ switch (command) {
     console.error(`Run "machete help" for usage information.`);
     process.exit(1);
 }
+
+// CLI is done — exit explicitly. Libraries like the Anthropic SDK keep HTTP
+// connection pools alive in the background, which prevents Node from exiting
+// on its own and triggers "unsettled top-level await" warnings.
+process.exit(0);
