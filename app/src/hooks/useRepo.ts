@@ -2,22 +2,85 @@ import { createContext, useContext } from "react";
 import type { RepoStatus } from "@/types";
 import type { RepoLayout } from "@/hooks/useRepoLayout";
 
-export interface RepoContextValue {
+// ─── Split contexts ─────────────────────────────────────────────────
+// Each context slice only triggers re-renders in components that
+// consume that specific slice, avoiding global cascade re-renders.
+
+export interface RepoPathContextValue {
   repoPath: string | null;
   setRepoPath: (path: string | null) => void;
+}
+
+export interface StatusContextValue {
   status: RepoStatus | null;
   statusLoading: boolean;
   statusError: string | null;
   refreshStatus: () => void;
+}
+
+export interface SelectionContextValue {
   selectedBranch: string | null;
   setSelectedBranch: (branch: string | null) => void;
-  /** null = uncommitted changes view, string = viewing a specific commit */
   selectedCommitHash: string | null;
   setSelectedCommitHash: (hash: string | null) => void;
-  /** Per-repo layout state (panel sizes, sidebar sections, etc.) */
+}
+
+export interface LayoutContextValue {
   layout: RepoLayout;
   updateLayout: (partial: Partial<RepoLayout>) => void;
 }
+
+export const RepoPathContext = createContext<RepoPathContextValue>({
+  repoPath: null,
+  setRepoPath: () => {},
+});
+
+export const StatusContext = createContext<StatusContextValue>({
+  status: null,
+  statusLoading: false,
+  statusError: null,
+  refreshStatus: () => {},
+});
+
+export const SelectionContext = createContext<SelectionContextValue>({
+  selectedBranch: null,
+  setSelectedBranch: () => {},
+  selectedCommitHash: null,
+  setSelectedCommitHash: () => {},
+});
+
+export const LayoutContext = createContext<LayoutContextValue>({
+  layout: {} as RepoLayout,
+  updateLayout: () => {},
+});
+
+// ─── Targeted hooks (prefer these) ─────────────────────────────────
+
+export function useRepoPath() {
+  return useContext(RepoPathContext);
+}
+
+export function useStatus() {
+  return useContext(StatusContext);
+}
+
+export function useSelection() {
+  return useContext(SelectionContext);
+}
+
+export function useLayout() {
+  return useContext(LayoutContext);
+}
+
+// ─── Legacy combined context ────────────────────────────────────────
+// Kept for backward compat — prefer the targeted hooks above.
+// Components using useRepo() will re-render on ANY slice change.
+
+export type RepoContextValue =
+  RepoPathContextValue &
+  StatusContextValue &
+  SelectionContextValue &
+  LayoutContextValue;
 
 export const RepoContext = createContext<RepoContextValue>({
   repoPath: null,

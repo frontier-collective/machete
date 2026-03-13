@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -12,7 +12,7 @@ import { BranchesView } from "@/components/branches/BranchesView";
 import { PrView } from "@/components/pr/PrView";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { useDrag } from "@/hooks/useDrag";
-import { RepoContext } from "@/hooks/useRepo";
+import { RepoContext, RepoPathContext, StatusContext, SelectionContext, LayoutContext } from "@/hooks/useRepo";
 import { useRepoLayout } from "@/hooks/useRepoLayout";
 import type { RepoStatus } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,8 @@ function App() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const lastStatusJson = useRef<string>("");
   const hasLoaded = useRef(false);
+  const refreshInFlight = useRef(false);
+  const refreshGeneration = useRef(0);
 
   // Toolbar slide-over state
   const [activeAction, setActiveAction] = useState<ToolbarAction>(null);
@@ -74,9 +76,16 @@ function App() {
 
   const refreshStatus = useCallback(async () => {
     if (!repoPath) return;
+    // Backpressure: skip if a refresh is already in flight
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    // Generation counter: discard results if a newer refresh was requested
+    const gen = ++refreshGeneration.current;
     if (!hasLoaded.current) setStatusLoading(true);
     try {
       const result = await invoke<RepoStatus>("get_repo_status", { repoPath });
+      // Stale guard: only apply if this is still the latest generation
+      if (gen !== refreshGeneration.current) return;
       const json = JSON.stringify(result);
       if (json !== lastStatusJson.current) {
         lastStatusJson.current = json;
@@ -84,10 +93,12 @@ function App() {
       }
       setStatusError(null);
     } catch (e) {
+      if (gen !== refreshGeneration.current) return;
       setStatusError(String(e));
     } finally {
       hasLoaded.current = true;
       setStatusLoading(false);
+      refreshInFlight.current = false;
     }
   }, [repoPath]);
 
@@ -96,6 +107,8 @@ function App() {
     if (!repoPath) return;
     hasLoaded.current = false;
     lastStatusJson.current = "";
+    refreshInFlight.current = false;
+    refreshGeneration.current = 0;
     refreshStatus();
 
     // Start the native file watcher
@@ -103,10 +116,12 @@ function App() {
       // Watcher failed — fall back to polling
     });
 
-    // Listen for fs change events from the watcher
+    // Debounce watcher events: coalesce rapid fs changes into one refresh
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let unlisten: (() => void) | null = null;
     listen("repo-fs-changed", () => {
-      refreshStatus();
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(refreshStatus, 150);
     }).then((fn) => {
       unlisten = fn;
     });
@@ -116,6 +131,7 @@ function App() {
 
     return () => {
       clearInterval(interval);
+      if (debounceTimer) clearTimeout(debounceTimer);
       if (unlisten) unlisten();
       invoke("unwatch_repo").catch(() => {});
     };
@@ -144,10 +160,35 @@ function App() {
     );
   }
 
+  // ── Memoized context slices ──────────────────────────────────────
+  const repoPathCtx = useMemo(
+    () => ({ repoPath, setRepoPath }),
+    [repoPath, setRepoPath]
+  );
+  const statusCtx = useMemo(
+    () => ({ status, statusLoading, statusError, refreshStatus }),
+    [status, statusLoading, statusError, refreshStatus]
+  );
+  const selectionCtx = useMemo(
+    () => ({ selectedBranch, setSelectedBranch, selectedCommitHash, setSelectedCommitHash }),
+    [selectedBranch, setSelectedBranch, selectedCommitHash, setSelectedCommitHash]
+  );
+  const layoutCtx = useMemo(
+    () => ({ layout, updateLayout }),
+    [layout, updateLayout]
+  );
+  // Legacy combined value — components still using useRepo() get this
+  const combinedCtx = useMemo(
+    () => ({ ...repoPathCtx, ...statusCtx, ...selectionCtx, ...layoutCtx }),
+    [repoPathCtx, statusCtx, selectionCtx, layoutCtx]
+  );
+
   return (
-    <RepoContext.Provider
-      value={{ repoPath, setRepoPath, status, statusLoading, statusError, refreshStatus, selectedBranch, setSelectedBranch, selectedCommitHash, setSelectedCommitHash, layout, updateLayout }}
-    >
+    <RepoPathContext.Provider value={repoPathCtx}>
+    <StatusContext.Provider value={statusCtx}>
+    <SelectionContext.Provider value={selectionCtx}>
+    <LayoutContext.Provider value={layoutCtx}>
+    <RepoContext.Provider value={combinedCtx}>
       <div className="flex h-screen w-screen flex-col overflow-hidden">
         {/* Toolbar — full width, acts as custom titlebar */}
         <Toolbar activeAction={activeAction} onAction={setActiveAction} />
@@ -238,6 +279,10 @@ function App() {
         </div>
       </div>
     </RepoContext.Provider>
+    </LayoutContext.Provider>
+    </SelectionContext.Provider>
+    </StatusContext.Provider>
+    </RepoPathContext.Provider>
   );
 }
 

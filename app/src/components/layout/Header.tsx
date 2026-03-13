@@ -1,6 +1,6 @@
 import { Sun, Moon, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRepo } from "@/hooks/useRepo";
+import { useStatus } from "@/hooks/useRepo";
 import { useTheme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +15,7 @@ function repoName(path: string | null): string {
 }
 
 export function Header({ repoPath }: HeaderProps) {
-  const { status } = useRepo();
+  const { status } = useStatus();
   const { theme, toggle } = useTheme();
 
   return (

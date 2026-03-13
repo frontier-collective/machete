@@ -13,7 +13,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus } from "@/hooks/useRepo";
 import { useTheme } from "@/hooks/useTheme";
 import {
   Tooltip,
@@ -31,7 +31,8 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ activeAction, onAction }: ToolbarProps) {
-  const { repoPath, status, refreshStatus } = useRepo();
+  const { repoPath } = useRepoPath();
+  const { status, refreshStatus } = useStatus();
   const { theme, toggle } = useTheme();
 
   const [pushLoading, setPushLoading] = useState(false);

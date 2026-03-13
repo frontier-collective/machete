@@ -6,7 +6,7 @@ import {
   GitPullRequest,
   Scissors,
 } from "lucide-react";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus } from "@/hooks/useRepo";
 import type { View } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +17,8 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({ onNavigate }: DashboardViewProps) {
-  const { repoPath, status, statusLoading } = useRepo();
+  const { repoPath } = useRepoPath();
+  const { status, statusLoading } = useStatus();
 
   if (!repoPath) {
     return (

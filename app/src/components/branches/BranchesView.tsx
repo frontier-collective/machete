@@ -14,7 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath } from "@/hooks/useRepo";
 import type { PruneClassification, BranchSafetyResult } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 
 export function BranchesView() {
-  const { repoPath } = useRepo();
+  const { repoPath } = useRepoPath();
 
   const [classification, setClassification] = useState<PruneClassification | null>(null);
   const [loading, setLoading] = useState(false);

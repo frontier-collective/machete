@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useSelection } from "@/hooks/useRepo";
 import { Badge } from "@/components/ui/badge";
 import type { CommitLogEntry } from "@/types";
 import { computeGraphLayout, type CommitGraphRow } from "./graphLayout";
@@ -11,7 +11,9 @@ import { GraphColumn, LANE_WIDTH, ROW_HEIGHT, UNCOMMITTED_COLOR, laneColor } fro
 const GRID_COLS = "4.5rem 1fr 7rem 5.5rem";
 
 export function CommitLog() {
-  const { repoPath, status, selectedBranch, selectedCommitHash, setSelectedCommitHash } = useRepo();
+  const { repoPath } = useRepoPath();
+  const { status } = useStatus();
+  const { selectedBranch, selectedCommitHash, setSelectedCommitHash } = useSelection();
   const [commits, setCommits] = useState<CommitLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const hasLoaded = useRef(false);

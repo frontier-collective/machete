@@ -9,7 +9,7 @@ import {
   Plus,
   Minus,
 } from "lucide-react";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus } from "@/hooks/useRepo";
 import type { PrContext } from "@/types";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +20,8 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 
 export function PrView() {
-  const { repoPath, status } = useRepo();
+  const { repoPath } = useRepoPath();
+  const { status } = useStatus();
 
   const [base, setBase] = useState("");
   const [baseDetected, setBaseDetected] = useState(false);

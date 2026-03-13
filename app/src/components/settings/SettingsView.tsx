@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath } from "@/hooks/useRepo";
 import { useTheme } from "@/hooks/useTheme";
 import type { ConfigEntry } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,7 +31,7 @@ function sourceLabel(source: string): string {
 }
 
 export function SettingsView() {
-  const { repoPath } = useRepo();
+  const { repoPath } = useRepoPath();
   const { dark, toggle } = useTheme();
   const [entries, setEntries] = useState<ConfigEntry[]>([]);
   const [loading, setLoading] = useState(false);

@@ -16,7 +16,7 @@ import {
   Plus,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useSelection, useLayout } from "@/hooks/useRepo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +36,10 @@ export function RepoSidebar({
   width?: number;
   onError?: (msg: string | null) => void;
 }) {
-  const { repoPath, setRepoPath, status, refreshStatus, setSelectedBranch, selectedBranch, layout, updateLayout } = useRepo();
+  const { repoPath, setRepoPath } = useRepoPath();
+  const { status, refreshStatus } = useStatus();
+  const { selectedBranch, setSelectedBranch } = useSelection();
+  const { layout, updateLayout } = useLayout();
 
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
@@ -86,10 +89,15 @@ export function RepoSidebar({
     }
   }, [repoPath]);
 
-  // Refresh sidebar data when repo changes or status updates (commit, branch switch, tag, etc.)
+  // Stable fingerprint: only refetch when branch, ahead/behind, or clean state changes
+  // (NOT on every staged/unstaged file change — those don't affect the sidebar)
+  const sidebarTrigger = status
+    ? `${status.branch}:${status.aheadCount}:${status.behindCount}:${status.isClean}`
+    : "";
+
   useEffect(() => {
     fetchSidebarData();
-  }, [fetchSidebarData, status]);
+  }, [fetchSidebarData, sidebarTrigger]);
 
   const handleOpenRepo = async () => {
     const selected = await open({ directory: true, multiple: false });
@@ -158,6 +166,12 @@ export function RepoSidebar({
   };
 
   const branchTree = useMemo(() => buildBranchTree(branches), [branches]);
+
+  // Pre-build all remote trees once (not inside .map() render loop)
+  const remoteTrees = useMemo(
+    () => new Map(remotes.map((r) => [r.name, buildRemoteBranchTree(r.name, r.branches)])),
+    [remotes]
+  );
 
   const repoName = repoPath
     ? repoPath.replace(/\/+$/, "").split("/").pop() || "Repo"
@@ -260,7 +274,7 @@ export function RepoSidebar({
             {remotesOpen && (
               <div>
                 {remotes.map((r) => {
-                  const remoteTree = buildRemoteBranchTree(r.name, r.branches);
+                  const remoteTree = remoteTrees.get(r.name) ?? [];
                   return (
                     <div key={r.name}>
                       <button
@@ -357,6 +371,9 @@ interface BranchTreeNode {
 
 function buildBranchTree(branches: BranchInfo[]): BranchTreeNode[] {
   const root: BranchTreeNode = { name: "", children: [] };
+  // Map for O(1) folder lookup at each level instead of .find() scans
+  const folderMaps = new Map<BranchTreeNode, Map<string, BranchTreeNode>>();
+  folderMaps.set(root, new Map());
 
   for (const b of branches) {
     const parts = b.name.split("/");
@@ -367,10 +384,13 @@ function buildBranchTree(branches: BranchInfo[]): BranchTreeNode[] {
       if (isLeaf) {
         node.children.push({ name: parts[i], fullName: b.name, info: b, children: [] });
       } else {
-        let folder = node.children.find((c) => !c.fullName && c.name === parts[i]);
+        let fm = folderMaps.get(node)!;
+        let folder = fm.get(parts[i]);
         if (!folder) {
           folder = { name: parts[i], children: [] };
           node.children.push(folder);
+          fm.set(parts[i], folder);
+          folderMaps.set(folder, new Map());
         }
         node = folder;
       }
@@ -543,6 +563,8 @@ interface RemoteTreeNode {
 
 function buildRemoteBranchTree(remoteName: string, branches: string[]): RemoteTreeNode[] {
   const root: RemoteTreeNode = { name: "", children: [] };
+  const folderMaps = new Map<RemoteTreeNode, Map<string, RemoteTreeNode>>();
+  folderMaps.set(root, new Map());
 
   for (const fullRef of branches) {
     // Strip remote prefix to get the branch path
@@ -555,10 +577,13 @@ function buildRemoteBranchTree(remoteName: string, branches: string[]): RemoteTr
       if (isLeaf) {
         node.children.push({ name: parts[i], fullRef, children: [] });
       } else {
-        let folder = node.children.find((c) => !c.fullRef && c.name === parts[i]);
+        let fm = folderMaps.get(node)!;
+        let folder = fm.get(parts[i]);
         if (!folder) {
           folder = { name: parts[i], children: [] };
           node.children.push(folder);
+          fm.set(parts[i], folder);
+          folderMaps.set(folder, new Map());
         }
         node = folder;
       }

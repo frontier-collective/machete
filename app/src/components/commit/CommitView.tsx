@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { Wand2, Loader2, ChevronDown } from "lucide-react";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useSelection, useLayout } from "@/hooks/useRepo";
 import { useDrag } from "@/hooks/useDrag";
 import type { CommitContext, CommitDetail, FileStatus } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -11,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 
 export function CommitView() {
-  const { repoPath, selectedCommitHash } = useRepo();
+  const { repoPath } = useRepoPath();
+  const { selectedCommitHash } = useSelection();
 
   if (!repoPath) {
     return (
@@ -32,7 +34,7 @@ export function CommitView() {
 // ─── Commit detail view (when a commit row is selected) ─────────────
 
 function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }) {
-  const { layout, updateLayout } = useRepo();
+  const { layout, updateLayout } = useLayout();
   const [detail, setDetail] = useState<CommitDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -207,7 +209,7 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
                 <span className="text-xs font-medium truncate flex-1">{selectedFile}</span>
                 <ContextLinesDropdown value={contextLines} onChange={(v) => updateLayout({ contextLines: v })} />
               </div>
-              <ScrollArea className="flex-1">
+              <div className="flex-1 min-h-0">
                 {diffLoading ? (
                   <div className="flex items-center justify-center p-8 text-muted-foreground text-xs">
                     Loading diff...
@@ -215,7 +217,7 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
                 ) : (
                   <DiffViewer diff={diff} isBinaryHint={detail.files.find((f) => f.file === selectedFile)?.binary} fileInfo={detail.files.find((f) => f.file === selectedFile)} />
                 )}
-              </ScrollArea>
+              </div>
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
@@ -326,7 +328,8 @@ function ContextLinesDropdown({
 // ─── Staging view (when uncommitted changes row is selected) ────────
 
 function StagingView({ repoPath }: { repoPath: string }) {
-  const { refreshStatus, status, layout, updateLayout } = useRepo();
+  const { refreshStatus, status } = useStatus();
+  const { layout, updateLayout } = useLayout();
 
   const [context, setContext] = useState<CommitContext | null>(null);
   const [loading, setLoading] = useState(false);
@@ -385,10 +388,15 @@ function StagingView({ repoPath }: { repoPath: string }) {
     }
   }, [repoPath]);
 
-  // Re-fetch file list when status changes (new files, edits, etc.)
+  // Stable fingerprint: only refetch when staged/unstaged file lists change
+  // (file names + counts — NOT on every status poll with identical data)
+  const stagingTrigger = status
+    ? `${status.stagedCount}:${status.unstagedCount}:${status.stagedFiles.join(",")}:${status.unstagedFiles.join(",")}`
+    : "";
+
   useEffect(() => {
     fetchContext();
-  }, [fetchContext, status]);
+  }, [fetchContext, stagingTrigger]);
 
   const contextLines = layout.contextLines;
 
@@ -413,14 +421,17 @@ function StagingView({ repoPath }: { repoPath: string }) {
     [repoPath, contextLines]
   );
 
-  // Re-fetch diff when file selection changes OR when status changes (file content edited externally)
+  // Re-fetch diff when file selection changes OR when staged/unstaged files change
+  // (uses the same fingerprint — if a file's content changes, git status reports it
+  // and the staging trigger will update, which re-triggers the context fetch above,
+  // and the diff is re-fetched when the context changes)
   useEffect(() => {
     if (selectedFile) {
       fetchDiff(selectedFile, selectedFileStaged);
     } else {
       setDiff("");
     }
-  }, [selectedFile, selectedFileStaged, fetchDiff, status]);
+  }, [selectedFile, selectedFileStaged, fetchDiff, stagingTrigger]);
 
   async function handleStageFiles(files: string[]) {
     if (!repoPath) return;
@@ -616,7 +627,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
                 <span className="text-xs font-medium truncate">{selectedFile}</span>
                 <ContextLinesDropdown value={contextLines} onChange={(v) => updateLayout({ contextLines: v })} />
               </div>
-              <ScrollArea className="flex-1">
+              <div className="flex-1 min-h-0">
                 {diffLoading ? (
                   <div className="flex items-center justify-center p-8 text-muted-foreground text-xs">
                     Loading diff...
@@ -624,7 +635,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
                 ) : (
                   <DiffViewer diff={diff} />
                 )}
-              </ScrollArea>
+              </div>
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
@@ -830,29 +841,35 @@ function BinaryFilePanel({ diff, fileInfo }: { diff: string; fileInfo?: FileStat
   );
 }
 
-function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHint?: boolean; fileInfo?: FileStatus }) {
+// ─── Diff parsing (pure function, used inside useMemo) ──────────────
+
+type ParsedLine =
+  | { type: "hunk"; hunkNum: number; startLine: number; endLine: number; context: string }
+  | { type: "add"; line: string; oldNum: null; newNum: number }
+  | { type: "del"; line: string; oldNum: number; newNum: null }
+  | { type: "ctx"; line: string; oldNum: number; newNum: number }
+  | { type: "no-newline" };
+
+interface ParsedDiff {
+  status: "empty" | "binary" | "no-hunks" | "ok";
+  parsed: ParsedLine[];
+  showBothGutters: boolean;
+}
+
+function parseDiff(diff: string, isBinaryHint?: boolean): ParsedDiff {
   if (!diff.trim()) {
-    if (isBinaryHint) {
-      return <BinaryFilePanel diff={diff} fileInfo={fileInfo} />;
-    }
-    return (
-      <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
-        No diff available
-      </div>
-    );
+    return { status: isBinaryHint ? "binary" : "empty", parsed: [], showBothGutters: false };
   }
 
   const rawLines = diff.split("\n");
 
-  // Detect binary files — git outputs "Binary files ... differ" or "GIT binary patch"
   const isBinary = rawLines.some(
     (l) => l.startsWith("Binary files ") || l.startsWith("GIT binary patch")
   );
   if (isBinary) {
-    return <BinaryFilePanel diff={diff} fileInfo={fileInfo} />;
+    return { status: "binary", parsed: [], showBothGutters: false };
   }
 
-  // Skip diff header lines (everything before the first @@ hunk header)
   let startIdx = -1;
   for (let i = 0; i < rawLines.length; i++) {
     if (rawLines[i].startsWith("@@")) {
@@ -861,8 +878,83 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
     }
   }
 
-  // No @@ hunks found — this is an empty file (e.g. new file with no content)
   if (startIdx === -1) {
+    return { status: "no-hunks", parsed: [], showBothGutters: false };
+  }
+
+  const lines = rawLines.slice(startIdx);
+  let oldLine = 0;
+  let newLine = 0;
+  let hunkNum = 0;
+
+  const parsed: ParsedLine[] = lines.map((line) => {
+    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/);
+    if (hunkMatch) {
+      hunkNum++;
+      const startOld = parseInt(hunkMatch[1], 10);
+      const countOld = hunkMatch[2] ? parseInt(hunkMatch[2], 10) : 1;
+      oldLine = startOld;
+      newLine = parseInt(hunkMatch[3], 10);
+      const context = hunkMatch[5]?.trim() || "";
+      return { type: "hunk" as const, hunkNum, startLine: startOld, endLine: startOld + countOld - 1, context };
+    }
+    if (line.startsWith("\\ ")) return { type: "no-newline" as const };
+    if (line.startsWith("+")) {
+      const entry: ParsedLine = { type: "add" as const, line, oldNum: null, newNum: newLine };
+      newLine++;
+      return entry;
+    }
+    if (line.startsWith("-")) {
+      const entry: ParsedLine = { type: "del" as const, line, oldNum: oldLine, newNum: null };
+      oldLine++;
+      return entry;
+    }
+    const entry: ParsedLine = { type: "ctx" as const, line, oldNum: oldLine, newNum: newLine };
+    oldLine++;
+    newLine++;
+    return entry;
+  });
+
+  const hasOld = parsed.some((p) => p.type === "del" || p.type === "ctx");
+  const hasNew = parsed.some((p) => p.type === "add" || p.type === "ctx");
+
+  return { status: "ok", parsed, showBothGutters: hasOld && hasNew };
+}
+
+// ─── Virtualized diff row height ─────────────────────────────────────
+
+const DIFF_ROW_HEIGHT = 20; // matches text-xs leading-relaxed
+const HUNK_ROW_HEIGHT = 28; // slightly taller for hunk headers
+
+// ─── Diff viewer (memoized parse + virtualized render) ──────────────
+
+function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHint?: boolean; fileInfo?: FileStatus }) {
+  // Memoize parsing — only re-parse when the diff string changes
+  const { status, parsed, showBothGutters } = useMemo(
+    () => parseDiff(diff, isBinaryHint),
+    [diff, isBinaryHint]
+  );
+
+  // Virtualized scroll container
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: parsed.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (i) => parsed[i]?.type === "hunk" ? HUNK_ROW_HEIGHT : DIFF_ROW_HEIGHT,
+    overscan: 20,
+  });
+
+  if (status === "binary") {
+    return <BinaryFilePanel diff={diff} fileInfo={fileInfo} />;
+  }
+  if (status === "empty") {
+    return (
+      <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
+        No diff available
+      </div>
+    );
+  }
+  if (status === "no-hunks") {
     return (
       <pre className="text-xs leading-relaxed">
         <code>
@@ -880,135 +972,107 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
     );
   }
 
-  const lines = rawLines.slice(startIdx);
-
-  // Parse lines with dual line numbers
-  let oldLine = 0;
-  let newLine = 0;
-  let hunkNum = 0;
-
-  type ParsedLine =
-    | { type: "hunk"; hunkNum: number; startLine: number; endLine: number; context: string }
-    | { type: "add"; line: string; oldNum: null; newNum: number }
-    | { type: "del"; line: string; oldNum: number; newNum: null }
-    | { type: "ctx"; line: string; oldNum: number; newNum: number }
-    | { type: "no-newline" };
-
-  const parsed: ParsedLine[] = lines.map((line) => {
-    // Parse @@ header to reset line counters
-    const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/);
-    if (hunkMatch) {
-      hunkNum++;
-      const startOld = parseInt(hunkMatch[1], 10);
-      const countOld = hunkMatch[2] ? parseInt(hunkMatch[2], 10) : 1;
-      oldLine = startOld;
-      newLine = parseInt(hunkMatch[3], 10);
-      const context = hunkMatch[5]?.trim() || "";
-      return {
-        type: "hunk" as const,
-        hunkNum,
-        startLine: startOld,
-        endLine: startOld + countOld - 1,
-        context,
-      };
-    }
-
-    // "\ No newline at end of file" marker
-    if (line.startsWith("\\ ")) {
-      return { type: "no-newline" as const };
-    }
-
-    if (line.startsWith("+")) {
-      const entry: ParsedLine = { type: "add" as const, line, oldNum: null, newNum: newLine };
-      newLine++;
-      return entry;
-    }
-    if (line.startsWith("-")) {
-      const entry: ParsedLine = { type: "del" as const, line, oldNum: oldLine, newNum: null };
-      oldLine++;
-      return entry;
-    }
-
-    // Context line
-    const entry: ParsedLine = { type: "ctx" as const, line, oldNum: oldLine, newNum: newLine };
-    oldLine++;
-    newLine++;
-    return entry;
-  });
-
-  // Detect whether we need both gutter columns
-  const hasOld = parsed.some((p) => p.type === "del" || p.type === "ctx");
-  const hasNew = parsed.some((p) => p.type === "add" || p.type === "ctx");
-  const showBothGutters = hasOld && hasNew;
-
   return (
-    <pre className="text-xs leading-relaxed">
-      <code>
-        {parsed.map((p, i) => {
-          if (p.type === "no-newline") {
-            return (
-              <div key={i} className="flex bg-amber-500/15">
-                {showBothGutters && (
-                  <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30" />
-                )}
-                <span className="inline-block w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50" />
-                <span className="flex-1 whitespace-pre-wrap break-all px-2 text-amber-600 dark:text-amber-400 italic">
-                  \ No newline at end of file
-                </span>
-              </div>
-            );
-          }
-
-          if (p.type === "hunk") {
-            return (
-              <div
-                key={i}
-                className="flex items-center border-y border-border/40 bg-muted/50 px-3 py-1 select-none"
-              >
-                <span className="text-[10px] font-medium text-muted-foreground">
-                  Hunk {p.hunkNum} : Lines {p.startLine}-{p.endLine}
-                </span>
-                {p.context && (
-                  <span className="ml-3 text-[10px] text-muted-foreground/70 truncate">
-                    {p.context}
-                  </span>
-                )}
-              </div>
-            );
-          }
-
-          let bgClass = "";
-          let textClass = "text-foreground";
-
-          if (p.type === "add") {
-            bgClass = "bg-green-500/10";
-            textClass = "text-green-700 dark:text-green-400";
-          } else if (p.type === "del") {
-            bgClass = "bg-red-500/10";
-            textClass = "text-red-700 dark:text-red-400";
-          }
-
-          return (
-            <div key={i} className={`flex ${bgClass}`}>
-              {showBothGutters && (
-                <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30">
-                  {p.oldNum ?? ""}
-                </span>
-              )}
-              <span className="inline-block w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50">
-                {showBothGutters ? (p.newNum ?? "") : (p.oldNum ?? p.newNum ?? "")}
-              </span>
-              <span className={`flex-1 whitespace-pre-wrap break-all px-2 ${textClass}`}>
-                {p.type === "add"
-                  ? `+ ${p.line.slice(1)}`
-                  : p.type === "del"
-                    ? `- ${p.line.slice(1)}`
-                    : `  ${p.line.slice(1)}`}
-              </span>
-            </div>
-          );
-        })}
-      </code>
-    </pre>
+    <div ref={scrollRef} className="h-full overflow-auto">
+      <pre className="text-xs leading-relaxed">
+        <code>
+          <div
+            style={{
+              height: virtualizer.getTotalSize(),
+              width: "100%",
+              position: "relative",
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const p = parsed[virtualRow.index];
+              return (
+                <div
+                  key={virtualRow.index}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: virtualRow.size,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <DiffLine p={p} showBothGutters={showBothGutters} />
+                </div>
+              );
+            })}
+          </div>
+        </code>
+      </pre>
+    </div>
   );
 }
+
+// ─── Memoized diff line row ─────────────────────────────────────────
+
+const DiffLine = memo(function DiffLine({
+  p,
+  showBothGutters,
+}: {
+  p: ParsedLine;
+  showBothGutters: boolean;
+}) {
+  if (p.type === "no-newline") {
+    return (
+      <div className="flex h-full bg-amber-500/15">
+        {showBothGutters && (
+          <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30" />
+        )}
+        <span className="inline-block w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50" />
+        <span className="flex-1 whitespace-pre-wrap break-all px-2 text-amber-600 dark:text-amber-400 italic">
+          \ No newline at end of file
+        </span>
+      </div>
+    );
+  }
+
+  if (p.type === "hunk") {
+    return (
+      <div className="flex items-center h-full border-y border-border/40 bg-muted/50 px-3 select-none">
+        <span className="text-[10px] font-medium text-muted-foreground">
+          Hunk {p.hunkNum} : Lines {p.startLine}-{p.endLine}
+        </span>
+        {p.context && (
+          <span className="ml-3 text-[10px] text-muted-foreground/70 truncate">
+            {p.context}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  let bgClass = "";
+  let textClass = "text-foreground";
+  if (p.type === "add") {
+    bgClass = "bg-green-500/10";
+    textClass = "text-green-700 dark:text-green-400";
+  } else if (p.type === "del") {
+    bgClass = "bg-red-500/10";
+    textClass = "text-red-700 dark:text-red-400";
+  }
+
+  return (
+    <div className={`flex h-full ${bgClass}`}>
+      {showBothGutters && (
+        <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30">
+          {p.oldNum ?? ""}
+        </span>
+      )}
+      <span className="inline-block w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50">
+        {showBothGutters ? (p.newNum ?? "") : (p.oldNum ?? p.newNum ?? "")}
+      </span>
+      <span className={`flex-1 whitespace-pre break-all px-2 ${textClass}`}>
+        {p.type === "add"
+          ? `+ ${p.line.slice(1)}`
+          : p.type === "del"
+            ? `- ${p.line.slice(1)}`
+            : `  ${p.line.slice(1)}`}
+      </span>
+    </div>
+  );
+});

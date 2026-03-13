@@ -1,7 +1,7 @@
 import type { View } from "@/types";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath } from "@/hooks/useRepo";
 
 interface ShellProps {
   currentView: View;
@@ -10,7 +10,7 @@ interface ShellProps {
 }
 
 export function Shell({ currentView, onNavigate, children }: ShellProps) {
-  const { repoPath } = useRepo();
+  const { repoPath } = useRepoPath();
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">

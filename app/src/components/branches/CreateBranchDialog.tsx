@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Loader2, GitBranch } from "lucide-react";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus } from "@/hooks/useRepo";
 import type { BranchInfo } from "@/types";
 import {
   Dialog,
@@ -42,7 +42,8 @@ export function CreateBranchDialog({
   branches,
   onCreated,
 }: CreateBranchDialogProps) {
-  const { repoPath, refreshStatus } = useRepo();
+  const { repoPath } = useRepoPath();
+  const { refreshStatus } = useStatus();
 
   const currentBranch = branches.find((b) => b.current)?.name ?? "HEAD";
   const initialSource = defaultSource ?? currentBranch;

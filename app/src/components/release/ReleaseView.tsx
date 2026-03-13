@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useRepo } from "@/hooks/useRepo";
+import { useRepoPath, useStatus } from "@/hooks/useRepo";
 import type { ReleasePreview } from "@/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,8 @@ import { Separator } from "@/components/ui/separator";
 type BumpType = "patch" | "minor" | "major";
 
 export function ReleaseView() {
-  const { repoPath, status } = useRepo();
+  const { repoPath } = useRepoPath();
+  const { status } = useStatus();
   const [preview, setPreview] = useState<ReleasePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

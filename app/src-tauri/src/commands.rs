@@ -105,56 +105,147 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Wrap a blocking closure in spawn_blocking so Command::output() doesn't
+/// block the Tokio async runtime threads.
+async fn off_main<T, F>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
 // ─── Status ─────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_repo_status(repo_path: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["status"])
+    off_main(move || {
+        // Native Rust implementation — avoids spawning Node + multiple git subprocesses.
+        // ~20-30ms vs ~400ms when going through the CLI.
+
+        // 1. Branch name
+        let branch = run_git(&repo_path, &["rev-parse", "--abbrev-ref", "HEAD"])
+            .unwrap_or_else(|_| "HEAD".to_string());
+
+        // 2. Porcelain status → staged/unstaged file lists
+        let porcelain = run_git(&repo_path, &["status", "--porcelain=v1", "-uall"])?;
+        let mut staged_files: Vec<String> = Vec::new();
+        let mut unstaged_files: Vec<String> = Vec::new();
+
+        for line in porcelain.lines() {
+            if line.len() < 3 {
+                continue;
+            }
+            let index_status = line.as_bytes()[0];
+            let worktree_status = line.as_bytes()[1];
+            let file = line[3..].to_string();
+
+            // Index (staged) changes: anything other than ' ' or '?'
+            if index_status != b' ' && index_status != b'?' {
+                staged_files.push(file.clone());
+            }
+            // Worktree (unstaged) changes: anything other than ' ' or '?'
+            // '?' means untracked — count as unstaged
+            if worktree_status != b' ' || index_status == b'?' {
+                unstaged_files.push(file);
+            }
+        }
+
+        let is_clean = staged_files.is_empty() && unstaged_files.is_empty();
+        let staged_count = staged_files.len();
+        let unstaged_count = unstaged_files.len();
+
+        // 3. Remote for the current branch (falls back to "origin")
+        let remote = run_git(
+            &repo_path,
+            &["config", &format!("branch.{}.remote", branch)],
+        )
+        .unwrap_or_else(|_| "origin".to_string());
+
+        // 4. Ahead/behind counts using rev-list --left-right --count
+        let (ahead, behind) = match run_git(
+            &repo_path,
+            &[
+                "rev-list",
+                "--left-right",
+                "--count",
+                &format!("{}/{}...{}", remote, branch, branch),
+            ],
+        ) {
+            Ok(output) => {
+                let parts: Vec<&str> = output.split_whitespace().collect();
+                let behind_count: u64 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+                let ahead_count: u64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+                (ahead_count, behind_count)
+            }
+            Err(_) => (0, 0), // No upstream tracking branch
+        };
+
+        Ok(serde_json::json!({
+            "branch": branch,
+            "isClean": is_clean,
+            "stagedFiles": staged_files,
+            "unstagedFiles": unstaged_files,
+            "stagedCount": staged_count,
+            "unstagedCount": unstaged_count,
+            "remote": remote,
+            "aheadCount": ahead,
+            "behindCount": behind,
+        }))
+    }).await
 }
 
 // ─── Commit ─────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_commit_context(repo_path: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["commit"])
+    off_main(move || run_machete(&repo_path, &["commit"])).await
 }
 
 #[tauri::command]
 pub async fn generate_commit_message(repo_path: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["commit", "--generate"])
+    off_main(move || run_machete(&repo_path, &["commit", "--generate"])).await
 }
 
 #[tauri::command]
 pub async fn create_commit(repo_path: String, message: String) -> Result<String, String> {
-    run_git(&repo_path, &["commit", "-m", &message])?;
-    Ok("Committed successfully".to_string())
+    off_main(move || {
+        run_git(&repo_path, &["commit", "-m", &message])?;
+        Ok("Committed successfully".to_string())
+    }).await
 }
 
 #[tauri::command]
 pub async fn stage_files(repo_path: String, files: Vec<String>) -> Result<String, String> {
-    let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
-    let mut args = vec!["add"];
-    args.extend(file_refs);
-    run_git(&repo_path, &args)?;
-    Ok("Staged".to_string())
+    off_main(move || {
+        let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        let mut args = vec!["add"];
+        args.extend(file_refs);
+        run_git(&repo_path, &args)?;
+        Ok("Staged".to_string())
+    }).await
 }
 
 #[tauri::command]
 pub async fn unstage_files(repo_path: String, files: Vec<String>) -> Result<String, String> {
-    let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
-    // Check if HEAD exists (it won't in a brand-new repo with no commits)
-    let has_head = run_git(&repo_path, &["rev-parse", "HEAD"]).is_ok();
-    if has_head {
-        let mut args = vec!["reset", "HEAD", "--"];
-        args.extend(file_refs);
-        run_git(&repo_path, &args)?;
-    } else {
-        // No commits yet — use rm --cached to unstage
-        let mut args = vec!["rm", "--cached", "--"];
-        args.extend(file_refs);
-        run_git(&repo_path, &args)?;
-    }
-    Ok("Unstaged".to_string())
+    off_main(move || {
+        let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        // Check if HEAD exists (it won't in a brand-new repo with no commits)
+        let has_head = run_git(&repo_path, &["rev-parse", "HEAD"]).is_ok();
+        if has_head {
+            let mut args = vec!["reset", "HEAD", "--"];
+            args.extend(file_refs);
+            run_git(&repo_path, &args)?;
+        } else {
+            // No commits yet — use rm --cached to unstage
+            let mut args = vec!["rm", "--cached", "--"];
+            args.extend(file_refs);
+            run_git(&repo_path, &args)?;
+        }
+        Ok("Unstaged".to_string())
+    }).await
 }
 
 #[tauri::command]
@@ -165,50 +256,58 @@ pub async fn get_file_diff(
     commit_hash: Option<String>,
     context_lines: Option<u32>,
 ) -> Result<String, String> {
-    let ctx = format!("-U{}", context_lines.unwrap_or(3));
+    off_main(move || {
+        let ctx = format!("-U{}", context_lines.unwrap_or(3));
 
-    if let Some(hash) = commit_hash {
-        // Check if this commit has a parent (root commits don't)
-        let has_parent = run_git(&repo_path, &["rev-parse", &format!("{}^", hash)]).is_ok();
-        let parent = if has_parent {
-            format!("{}^", hash)
+        if let Some(hash) = commit_hash {
+            // Check if this commit has a parent (root commits don't)
+            let has_parent = run_git(&repo_path, &["rev-parse", &format!("{}^", hash)]).is_ok();
+            let parent = if has_parent {
+                format!("{}^", hash)
+            } else {
+                // Empty tree hash — diff entire commit against nothing
+                "4b825dc642cb6eb9a060e54bf899d15f3f9382e1".to_string()
+            };
+            if file.contains(" → ") {
+                let parts: Vec<&str> = file.split(" → ").collect();
+                let old_file = parts[0].trim();
+                let new_file = parts[1].trim();
+                run_git(&repo_path, &["diff", "-M", &ctx, &parent, &hash, "--", old_file, new_file])
+            } else {
+                run_git(&repo_path, &["diff", "-M", &ctx, &parent, &hash, "--", &file])
+            }
+        } else if staged {
+            run_git(&repo_path, &["diff", "--cached", &ctx, "--", &file])
         } else {
-            // Empty tree hash — diff entire commit against nothing
-            "4b825dc642cb6eb9a060e54bf899d15f3f9382e1".to_string()
-        };
-        if file.contains(" → ") {
-            let parts: Vec<&str> = file.split(" → ").collect();
-            let old_file = parts[0].trim();
-            let new_file = parts[1].trim();
-            run_git(&repo_path, &["diff", "-M", &ctx, &parent, &hash, "--", old_file, new_file])
-        } else {
-            run_git(&repo_path, &["diff", "-M", &ctx, &parent, &hash, "--", &file])
+            run_git(&repo_path, &["diff", &ctx, "--", &file])
         }
-    } else if staged {
-        run_git(&repo_path, &["diff", "--cached", &ctx, "--", &file])
-    } else {
-        run_git(&repo_path, &["diff", &ctx, "--", &file])
-    }
+    }).await
 }
 
 #[tauri::command]
 pub async fn push_current_branch(repo_path: String) -> Result<String, String> {
-    let branch = run_git(&repo_path, &["branch", "--show-current"])?;
-    run_git(&repo_path, &["push", "-u", "origin", &branch])?;
-    Ok(format!("Pushed {}", branch))
+    off_main(move || {
+        let branch = run_git(&repo_path, &["branch", "--show-current"])?;
+        run_git(&repo_path, &["push", "-u", "origin", &branch])?;
+        Ok(format!("Pushed {}", branch))
+    }).await
 }
 
 #[tauri::command]
 pub async fn pull_current_branch(repo_path: String) -> Result<String, String> {
-    let branch = run_git(&repo_path, &["branch", "--show-current"])?;
-    run_git(&repo_path, &["pull", "origin", &branch])?;
-    Ok(format!("Pulled {}", branch))
+    off_main(move || {
+        let branch = run_git(&repo_path, &["branch", "--show-current"])?;
+        run_git(&repo_path, &["pull", "origin", &branch])?;
+        Ok(format!("Pulled {}", branch))
+    }).await
 }
 
 #[tauri::command]
 pub async fn fetch_remote(repo_path: String) -> Result<String, String> {
-    run_git(&repo_path, &["fetch", "--prune"])?;
-    Ok("Fetched".to_string())
+    off_main(move || {
+        run_git(&repo_path, &["fetch", "--prune"])?;
+        Ok("Fetched".to_string())
+    }).await
 }
 
 #[tauri::command]
@@ -218,32 +317,36 @@ pub async fn create_branch(
     source: String,
     checkout: bool,
 ) -> Result<String, String> {
-    if checkout {
-        run_git(&repo_path, &["checkout", "-b", &name, &source])?;
-        Ok(format!("Created and switched to {}", name))
-    } else {
-        run_git(&repo_path, &["branch", &name, &source])?;
-        Ok(format!("Created branch {}", name))
-    }
+    off_main(move || {
+        if checkout {
+            run_git(&repo_path, &["checkout", "-b", &name, &source])?;
+            Ok(format!("Created and switched to {}", name))
+        } else {
+            run_git(&repo_path, &["branch", &name, &source])?;
+            Ok(format!("Created branch {}", name))
+        }
+    }).await
 }
 
 // ─── Prune ──────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_branch_classification(repo_path: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["prune", "--dry-run"])
+    off_main(move || run_machete(&repo_path, &["prune", "--dry-run"])).await
 }
 
 #[tauri::command]
 pub async fn delete_branches(repo_path: String, branches: Vec<String>) -> Result<Vec<String>, String> {
-    let mut deleted = Vec::new();
-    for branch in &branches {
-        match run_git(&repo_path, &["branch", "-d", branch]) {
-            Ok(_) => deleted.push(branch.clone()),
-            Err(e) => return Err(format!("Failed to delete {}: {}", branch, e)),
+    off_main(move || {
+        let mut deleted = Vec::new();
+        for branch in &branches {
+            match run_git(&repo_path, &["branch", "-d", branch]) {
+                Ok(_) => deleted.push(branch.clone()),
+                Err(e) => return Err(format!("Failed to delete {}: {}", branch, e)),
+            }
         }
-    }
-    Ok(deleted)
+        Ok(deleted)
+    }).await
 }
 
 // ─── PR ─────────────────────────────────────────────────────────────
@@ -251,46 +354,48 @@ pub async fn delete_branches(repo_path: String, branches: Vec<String>) -> Result
 /// Detect the default base branch: prBaseBranch config → remote default → "main"
 #[tauri::command]
 pub async fn get_default_base_branch(repo_path: String) -> Result<String, String> {
-    // 1. Check machete config for prBaseBranch
-    if let Ok(config) = run_machete(&repo_path, &["config", "--list"]) {
-        if let Some(entries) = config.as_array() {
-            for entry in entries {
-                if entry.get("key").and_then(|k| k.as_str()) == Some("prBaseBranch") {
-                    if let Some(val) = entry.get("value").and_then(|v| v.as_str()) {
-                        if !val.is_empty() {
-                            return Ok(val.to_string());
+    off_main(move || {
+        // 1. Check machete config for prBaseBranch
+        if let Ok(config) = run_machete(&repo_path, &["config", "--list"]) {
+            if let Some(entries) = config.as_array() {
+                for entry in entries {
+                    if entry.get("key").and_then(|k| k.as_str()) == Some("prBaseBranch") {
+                        if let Some(val) = entry.get("value").and_then(|v| v.as_str()) {
+                            if !val.is_empty() {
+                                return Ok(val.to_string());
+                            }
                         }
                     }
                 }
             }
         }
-    }
 
-    // 2. Try remote default branch
-    if let Ok(output) = run_git(&repo_path, &["remote", "show", "origin"]) {
-        for line in output.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("HEAD branch:") {
-                let branch = trimmed.trim_start_matches("HEAD branch:").trim();
-                if !branch.is_empty() && branch != "(unknown)" {
-                    return Ok(branch.to_string());
+        // 2. Try remote default branch
+        if let Ok(output) = run_git(&repo_path, &["remote", "show", "origin"]) {
+            for line in output.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("HEAD branch:") {
+                    let branch = trimmed.trim_start_matches("HEAD branch:").trim();
+                    if !branch.is_empty() && branch != "(unknown)" {
+                        return Ok(branch.to_string());
+                    }
                 }
             }
         }
-    }
 
-    // 3. Fallback
-    Ok("main".to_string())
+        // 3. Fallback
+        Ok("main".to_string())
+    }).await
 }
 
 #[tauri::command]
 pub async fn get_pr_context(repo_path: String, base: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["pr", "--base", &base])
+    off_main(move || run_machete(&repo_path, &["pr", "--base", &base])).await
 }
 
 #[tauri::command]
 pub async fn generate_pr(repo_path: String, base: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["pr", "--base", &base, "--generate"])
+    off_main(move || run_machete(&repo_path, &["pr", "--base", &base, "--generate"])).await
 }
 
 #[tauri::command]
@@ -301,38 +406,40 @@ pub async fn create_pr(
     base: String,
     draft: bool,
 ) -> Result<String, String> {
-    let mut args = vec!["pr", "create", "--base", &base, "--title", &title, "--body", &body];
-    if draft {
-        args.push("--draft");
-    }
+    off_main(move || {
+        let mut args = vec!["pr", "create", "--base", &base, "--title", &title, "--body", &body];
+        if draft {
+            args.push("--draft");
+        }
 
-    let output = Command::new("gh")
-        .args(&args)
-        .current_dir(&repo_path)
-        .env("PATH", enriched_path())
-        .output()
-        .map_err(|e| format!("Failed to run gh: {}", e))?;
+        let output = Command::new("gh")
+            .args(&args)
+            .current_dir(&repo_path)
+            .env("PATH", enriched_path())
+            .output()
+            .map_err(|e| format!("Failed to run gh: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(strip_ansi(&format!("gh pr create failed: {}", stderr)));
-    }
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(strip_ansi(&format!("gh pr create failed: {}", stderr)));
+        }
 
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }).await
 }
 
 // ─── Release ────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_release_preview(repo_path: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["release"])
+    off_main(move || run_machete(&repo_path, &["release"])).await
 }
 
 // ─── Config ─────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_config_list(repo_path: String) -> Result<Value, String> {
-    run_machete(&repo_path, &["config", "--list"])
+    off_main(move || run_machete(&repo_path, &["config", "--list"])).await
 }
 
 #[tauri::command]
@@ -342,291 +449,305 @@ pub async fn set_config_value(
     value: String,
     global: bool,
 ) -> Result<String, String> {
-    let mut args = vec!["config"];
-    if global {
-        args.push("-g");
-    }
-    args.push(&key);
-    args.push(&value);
+    off_main(move || {
+        let mut args = vec!["config"];
+        if global {
+            args.push("-g");
+        }
+        args.push(&key);
+        args.push(&value);
 
-    let (program, prefix_args) = machete_command();
-    let mut full_args: Vec<String> = prefix_args;
-    for a in &args {
-        full_args.push(a.to_string());
-    }
+        let (program, prefix_args) = machete_command();
+        let mut full_args: Vec<String> = prefix_args;
+        for a in &args {
+            full_args.push(a.to_string());
+        }
 
-    let output = Command::new(&program)
-        .args(&full_args)
-        .current_dir(&repo_path)
-        .env("PATH", enriched_path())
-        .output()
-        .map_err(|e| format!("Failed to run machete: {}", e))?;
+        let output = Command::new(&program)
+            .args(&full_args)
+            .current_dir(&repo_path)
+            .env("PATH", enriched_path())
+            .output()
+            .map_err(|e| format!("Failed to run machete: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(strip_ansi(&format!("machete config failed: {}", stderr)));
-    }
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(strip_ansi(&format!("machete config failed: {}", stderr)));
+        }
 
-    Ok("Config updated".to_string())
+        Ok("Config updated".to_string())
+    }).await
 }
 
 // ─── Sidebar data (branches, remotes, tags) ─────────────────────────
 
 #[tauri::command]
 pub async fn get_branches(repo_path: String) -> Result<Value, String> {
-    // Local branches with current marker and ahead/behind tracking info
-    let current = run_git(&repo_path, &["branch", "--show-current"])?;
-    let output = run_git(
-        &repo_path,
-        &[
-            "for-each-ref",
-            "--format=%(refname:short)|%(upstream:track)",
-            "refs/heads/",
-        ],
-    )?;
-    let branches: Vec<Value> = output
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|line| {
-            let parts: Vec<&str> = line.splitn(2, '|').collect();
-            let name = parts[0].trim();
-            let track = parts.get(1).unwrap_or(&"").trim();
+    off_main(move || {
+        // Local branches with current marker and ahead/behind tracking info
+        let current = run_git(&repo_path, &["branch", "--show-current"])?;
+        let output = run_git(
+            &repo_path,
+            &[
+                "for-each-ref",
+                "--format=%(refname:short)|%(upstream:track)",
+                "refs/heads/",
+            ],
+        )?;
+        let branches: Vec<Value> = output
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|line| {
+                let parts: Vec<&str> = line.splitn(2, '|').collect();
+                let name = parts[0].trim();
+                let track = parts.get(1).unwrap_or(&"").trim();
 
-            // Parse "[ahead N, behind M]" or "[ahead N]" or "[behind M]"
-            let mut ahead: u64 = 0;
-            let mut behind: u64 = 0;
-            if track.starts_with('[') && track.ends_with(']') {
-                let inner = &track[1..track.len() - 1];
-                for part in inner.split(',') {
-                    let part = part.trim();
-                    if part.starts_with("ahead ") {
-                        ahead = part[6..].parse().unwrap_or(0);
-                    } else if part.starts_with("behind ") {
-                        behind = part[7..].parse().unwrap_or(0);
+                // Parse "[ahead N, behind M]" or "[ahead N]" or "[behind M]"
+                let mut ahead: u64 = 0;
+                let mut behind: u64 = 0;
+                if track.starts_with('[') && track.ends_with(']') {
+                    let inner = &track[1..track.len() - 1];
+                    for part in inner.split(',') {
+                        let part = part.trim();
+                        if part.starts_with("ahead ") {
+                            ahead = part[6..].parse().unwrap_or(0);
+                        } else if part.starts_with("behind ") {
+                            behind = part[7..].parse().unwrap_or(0);
+                        }
                     }
                 }
-            }
 
-            serde_json::json!({
-                "name": name,
-                "current": name == current,
-                "ahead": ahead,
-                "behind": behind,
+                serde_json::json!({
+                    "name": name,
+                    "current": name == current,
+                    "ahead": ahead,
+                    "behind": behind,
+                })
             })
-        })
-        .collect();
-    Ok(serde_json::json!(branches))
+            .collect();
+        Ok(serde_json::json!(branches))
+    }).await
 }
 
 #[tauri::command]
 pub async fn get_remotes(repo_path: String) -> Result<Value, String> {
-    let remotes_out = run_git(&repo_path, &["remote"])?;
-    let mut remotes: Vec<Value> = Vec::new();
+    off_main(move || {
+        let remotes_out = run_git(&repo_path, &["remote"])?;
+        let mut remotes: Vec<Value> = Vec::new();
 
-    for remote in remotes_out.lines().filter(|l| !l.is_empty()) {
-        let remote = remote.trim();
-        // Get remote branches
-        let refs_out = run_git(
-            &repo_path,
-            &["branch", "-r", "--format=%(refname:short)", "--list", &format!("{}/*", remote)],
-        )
-        .unwrap_or_default();
+        for remote in remotes_out.lines().filter(|l| !l.is_empty()) {
+            let remote = remote.trim();
+            // Get remote branches
+            let refs_out = run_git(
+                &repo_path,
+                &["branch", "-r", "--format=%(refname:short)", "--list", &format!("{}/*", remote)],
+            )
+            .unwrap_or_default();
 
-        let branches: Vec<String> = refs_out
-            .lines()
-            .filter(|l| !l.is_empty() && !l.contains("HEAD"))
-            .map(|l| l.trim().to_string())
-            .collect();
+            let branches: Vec<String> = refs_out
+                .lines()
+                .filter(|l| !l.is_empty() && !l.contains("HEAD"))
+                .map(|l| l.trim().to_string())
+                .collect();
 
-        remotes.push(serde_json::json!({
-            "name": remote,
-            "branches": branches,
-        }));
-    }
+            remotes.push(serde_json::json!({
+                "name": remote,
+                "branches": branches,
+            }));
+        }
 
-    Ok(serde_json::json!(remotes))
+        Ok(serde_json::json!(remotes))
+    }).await
 }
 
 #[tauri::command]
 pub async fn get_tags(repo_path: String) -> Result<Value, String> {
-    let output = run_git(&repo_path, &["tag", "--sort=-creatordate"]).unwrap_or_default();
-    let tags: Vec<String> = output
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|l| l.trim().to_string())
-        .collect();
-    Ok(serde_json::json!(tags))
+    off_main(move || {
+        let output = run_git(&repo_path, &["tag", "--sort=-creatordate"]).unwrap_or_default();
+        let tags: Vec<String> = output
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.trim().to_string())
+            .collect();
+        Ok(serde_json::json!(tags))
+    }).await
 }
 
 // ─── Commit log ──────────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn get_commit_log(repo_path: String, count: Option<u32>) -> Result<Value, String> {
-    // %H=hash %h=short %P=parents %s=subject %an=author %aI=date %D=refs
-    let format = "--format=%H%n%h%n%P%n%s%n%an%n%aI%n%D%n---";
-    let output = match count {
-        Some(n) => run_git(&repo_path, &["log", &format!("-{}", n), format, "--all"])?,
-        None => run_git(&repo_path, &["log", format, "--all"])?,
-    };
+    off_main(move || {
+        // %H=hash %h=short %P=parents %s=subject %an=author %aI=date %D=refs
+        let format = "--format=%H%n%h%n%P%n%s%n%an%n%aI%n%D%n---";
+        let output = match count {
+            Some(n) => run_git(&repo_path, &["log", &format!("-{}", n), format, "--all"])?,
+            None => run_git(&repo_path, &["log", format, "--all"])?,
+        };
 
-    let mut commits: Vec<Value> = Vec::new();
-    let mut lines: Vec<&str> = Vec::new();
+        let mut commits: Vec<Value> = Vec::new();
+        let mut lines: Vec<&str> = Vec::new();
 
-    for line in output.lines() {
-        if line == "---" {
-            if lines.len() >= 7 {
-                let parents_str = lines[2];
-                let parents: Vec<String> = if parents_str.is_empty() {
-                    vec![]
-                } else {
-                    parents_str.split(' ').map(|s| s.to_string()).collect()
-                };
-                let refs_str = lines[6];
-                let refs: Vec<String> = if refs_str.is_empty() {
-                    vec![]
-                } else {
-                    refs_str.split(", ").map(|s| s.trim().to_string()).collect()
-                };
-                commits.push(serde_json::json!({
-                    "hash": lines[0],
-                    "shortHash": lines[1],
-                    "parents": parents,
-                    "message": lines[3],
-                    "author": lines[4],
-                    "date": lines[5],
-                    "refs": refs,
-                }));
+        for line in output.lines() {
+            if line == "---" {
+                if lines.len() >= 7 {
+                    let parents_str = lines[2];
+                    let parents: Vec<String> = if parents_str.is_empty() {
+                        vec![]
+                    } else {
+                        parents_str.split(' ').map(|s| s.to_string()).collect()
+                    };
+                    let refs_str = lines[6];
+                    let refs: Vec<String> = if refs_str.is_empty() {
+                        vec![]
+                    } else {
+                        refs_str.split(", ").map(|s| s.trim().to_string()).collect()
+                    };
+                    commits.push(serde_json::json!({
+                        "hash": lines[0],
+                        "shortHash": lines[1],
+                        "parents": parents,
+                        "message": lines[3],
+                        "author": lines[4],
+                        "date": lines[5],
+                        "refs": refs,
+                    }));
+                }
+                lines.clear();
+            } else {
+                lines.push(line);
             }
-            lines.clear();
-        } else {
-            lines.push(line);
         }
-    }
 
-    Ok(serde_json::json!(commits))
+        Ok(serde_json::json!(commits))
+    }).await
 }
 
 // ─── Branch checkout ─────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn checkout_branch(repo_path: String, branch: String) -> Result<String, String> {
-    run_git(&repo_path, &["checkout", &branch])?;
-    Ok(format!("Switched to {}", branch))
+    off_main(move || {
+        run_git(&repo_path, &["checkout", &branch])?;
+        Ok(format!("Switched to {}", branch))
+    }).await
 }
 
 // ─── Commit detail (for viewing a historical commit) ────────────────
 
 #[tauri::command]
 pub async fn get_commit_detail(repo_path: String, hash: String) -> Result<Value, String> {
-    // Get commit message
-    let message = run_git(&repo_path, &["log", "-1", "--format=%B", &hash])?;
+    off_main(move || {
+        // Get commit message
+        let message = run_git(&repo_path, &["log", "-1", "--format=%B", &hash])?;
 
-    // Check if this is a merge commit (multiple parents)
-    let parents = run_git(&repo_path, &["rev-parse", &format!("{}^@", hash)])?;
-    let parent_count = parents.lines().filter(|l| !l.is_empty()).count();
+        // Check if this is a merge commit (multiple parents)
+        let parents = run_git(&repo_path, &["rev-parse", &format!("{}^@", hash)])?;
+        let parent_count = parents.lines().filter(|l| !l.is_empty()).count();
 
-    // Get file stats and status: -M enables rename detection, -C enables copy detection
-    let (numstat, name_status) = if parent_count > 1 {
-        let first_parent = parents.lines().next().unwrap_or("").trim();
-        (
-            run_git(&repo_path, &["diff", "-M", "-C", "--numstat", first_parent, &hash])?,
-            run_git(&repo_path, &["diff", "-M", "-C", "--name-status", first_parent, &hash])?,
-        )
-    } else if parent_count == 0 {
-        // Root commit (no parents) — need --root flag for diff-tree
-        (
-            run_git(&repo_path, &["diff-tree", "--root", "--no-commit-id", "-r", "-M", "-C", "--numstat", &hash])?,
-            run_git(&repo_path, &["diff-tree", "--root", "--no-commit-id", "-r", "-M", "-C", "--name-status", &hash])?,
-        )
-    } else {
-        (
-            run_git(&repo_path, &["diff-tree", "--no-commit-id", "-r", "-M", "-C", "--numstat", &hash])?,
-            run_git(&repo_path, &["diff-tree", "--no-commit-id", "-r", "-M", "-C", "--name-status", &hash])?,
-        )
-    };
+        // Get file stats and status: -M enables rename detection, -C enables copy detection
+        let (numstat, name_status) = if parent_count > 1 {
+            let first_parent = parents.lines().next().unwrap_or("").trim();
+            (
+                run_git(&repo_path, &["diff", "-M", "-C", "--numstat", first_parent, &hash])?,
+                run_git(&repo_path, &["diff", "-M", "-C", "--name-status", first_parent, &hash])?,
+            )
+        } else if parent_count == 0 {
+            // Root commit (no parents) — need --root flag for diff-tree
+            (
+                run_git(&repo_path, &["diff-tree", "--root", "--no-commit-id", "-r", "-M", "-C", "--numstat", &hash])?,
+                run_git(&repo_path, &["diff-tree", "--root", "--no-commit-id", "-r", "-M", "-C", "--name-status", &hash])?,
+            )
+        } else {
+            (
+                run_git(&repo_path, &["diff-tree", "--no-commit-id", "-r", "-M", "-C", "--numstat", &hash])?,
+                run_git(&repo_path, &["diff-tree", "--no-commit-id", "-r", "-M", "-C", "--name-status", &hash])?,
+            )
+        };
 
-    // Parse name-status lines into (status, display_file, old_file) tuples
-    // Both --numstat and --name-status output files in the same order, so we join by index
-    let status_entries: Vec<(String, String)> = name_status
-        .lines()
-        .filter(|l| !l.is_empty())
-        .map(|line| {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 2 {
-                let status_str = parts[0].to_string();
-                let status_char = status_str.chars().next().unwrap_or('M');
-                if (status_char == 'R' || status_char == 'C') && parts.len() >= 3 {
-                    // Rename/copy: show "old → new"
-                    let old = parts[1];
-                    let new = parts[2];
-                    (status_char.to_string(), format!("{} → {}", old, new))
-                } else {
-                    (status_char.to_string(), parts[1].to_string())
-                }
-            } else {
-                ("M".to_string(), line.trim().to_string())
-            }
-        })
-        .collect();
-
-    let numstat_lines: Vec<&str> = numstat.lines().filter(|l| !l.is_empty()).collect();
-
-    let files: Vec<Value> = numstat_lines
-        .iter()
-        .enumerate()
-        .map(|(i, line)| {
-            let parts: Vec<&str> = line.split('\t').collect();
-            let (status, display_file) = status_entries
-                .get(i)
-                .cloned()
-                .unwrap_or_else(|| ("M".to_string(), parts.get(2).unwrap_or(&"").to_string()));
-
-            if parts.len() >= 3 {
-                let added: i64 = parts[0].parse().unwrap_or(0);
-                let removed: i64 = parts[1].parse().unwrap_or(0);
-                let binary = parts[0] == "-";
-                // For binary files, get the file size from the commit tree
-                let size: Option<i64> = if binary {
-                    // Use the actual file path (not the display path with →)
-                    let lookup_file = if display_file.contains(" → ") {
-                        display_file.split(" → ").last().unwrap_or(&display_file).trim().to_string()
+        // Parse name-status lines into (status, display_file, old_file) tuples
+        // Both --numstat and --name-status output files in the same order, so we join by index
+        let status_entries: Vec<(String, String)> = name_status
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|line| {
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() >= 2 {
+                    let status_str = parts[0].to_string();
+                    let status_char = status_str.chars().next().unwrap_or('M');
+                    if (status_char == 'R' || status_char == 'C') && parts.len() >= 3 {
+                        // Rename/copy: show "old → new"
+                        let old = parts[1];
+                        let new = parts[2];
+                        (status_char.to_string(), format!("{} → {}", old, new))
                     } else {
-                        display_file.clone()
-                    };
-                    run_git(&repo_path, &["cat-file", "-s", &format!("{}:{}", hash, lookup_file)])
-                        .ok()
-                        .and_then(|s| s.trim().parse().ok())
+                        (status_char.to_string(), parts[1].to_string())
+                    }
                 } else {
-                    None
-                };
-                let mut obj = serde_json::json!({
-                    "file": display_file,
-                    "added": if binary { 0 } else { added },
-                    "removed": if binary { 0 } else { removed },
-                    "binary": binary,
-                    "status": status,
-                });
-                if let Some(s) = size {
-                    obj["size"] = serde_json::json!(s);
+                    ("M".to_string(), line.trim().to_string())
                 }
-                obj
-            } else {
-                serde_json::json!({ "file": display_file, "added": 0, "removed": 0, "binary": false, "status": "M" })
-            }
-        })
-        .collect();
+            })
+            .collect();
 
-    // Get author and date
-    let info = run_git(&repo_path, &["log", "-1", "--format=%an|%aI", &hash])?;
-    let info_parts: Vec<&str> = info.trim().splitn(2, '|').collect();
-    let author = info_parts.first().unwrap_or(&"").to_string();
-    let date = info_parts.get(1).unwrap_or(&"").to_string();
+        let numstat_lines: Vec<&str> = numstat.lines().filter(|l| !l.is_empty()).collect();
 
-    Ok(serde_json::json!({
-        "hash": hash,
-        "message": message.trim(),
-        "author": author,
-        "date": date,
-        "files": files,
-    }))
+        let files: Vec<Value> = numstat_lines
+            .iter()
+            .enumerate()
+            .map(|(i, line)| {
+                let parts: Vec<&str> = line.split('\t').collect();
+                let (status, display_file) = status_entries
+                    .get(i)
+                    .cloned()
+                    .unwrap_or_else(|| ("M".to_string(), parts.get(2).unwrap_or(&"").to_string()));
+
+                if parts.len() >= 3 {
+                    let added: i64 = parts[0].parse().unwrap_or(0);
+                    let removed: i64 = parts[1].parse().unwrap_or(0);
+                    let binary = parts[0] == "-";
+                    // For binary files, get the file size from the commit tree
+                    let size: Option<i64> = if binary {
+                        // Use the actual file path (not the display path with →)
+                        let lookup_file = if display_file.contains(" → ") {
+                            display_file.split(" → ").last().unwrap_or(&display_file).trim().to_string()
+                        } else {
+                            display_file.clone()
+                        };
+                        run_git(&repo_path, &["cat-file", "-s", &format!("{}:{}", hash, lookup_file)])
+                            .ok()
+                            .and_then(|s| s.trim().parse().ok())
+                    } else {
+                        None
+                    };
+                    let mut obj = serde_json::json!({
+                        "file": display_file,
+                        "added": if binary { 0 } else { added },
+                        "removed": if binary { 0 } else { removed },
+                        "binary": binary,
+                        "status": status,
+                    });
+                    if let Some(s) = size {
+                        obj["size"] = serde_json::json!(s);
+                    }
+                    obj
+                } else {
+                    serde_json::json!({ "file": display_file, "added": 0, "removed": 0, "binary": false, "status": "M" })
+                }
+            })
+            .collect();
+
+        // Get author and date
+        let info = run_git(&repo_path, &["log", "-1", "--format=%an|%aI", &hash])?;
+        let info_parts: Vec<&str> = info.trim().splitn(2, '|').collect();
+        let author = info_parts.first().unwrap_or(&"").to_string();
+        let date = info_parts.get(1).unwrap_or(&"").to_string();
+
+        Ok(serde_json::json!({
+            "hash": hash,
+            "message": message.trim(),
+            "author": author,
+            "date": date,
+            "files": files,
+        }))
+    }).await
 }
