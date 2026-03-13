@@ -1,11 +1,34 @@
-import { createInterface } from "node:readline";
+import { createInterface, type Interface } from "node:readline";
 
-export async function confirm(message: string, defaultYes = false): Promise<boolean> {
+/**
+ * Create a readline interface that exits cleanly on Ctrl+C.
+ *
+ * Readline puts the terminal in raw mode, so Ctrl+C is intercepted as a
+ * character (0x03) rather than generating a real SIGINT signal. This means
+ * process.on("SIGINT") never fires while a readline is active. Readline
+ * emits its own "SIGINT" event on the rl instance — if nobody listens,
+ * it just pauses input and the process hangs. This factory wires up the
+ * handler so every caller gets clean exit behaviour for free.
+ *
+ * The process.on("SIGINT") in index.ts covers Ctrl+C outside of readline
+ * (e.g. during API calls or git commands).
+ */
+export function createRl(): Interface {
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
   });
 
+  rl.on("SIGINT", () => {
+    console.log();
+    process.exit(0);
+  });
+
+  return rl;
+}
+
+export async function confirm(message: string, defaultYes = false): Promise<boolean> {
+  const rl = createRl();
   const hint = defaultYes ? "(Y/n)" : "(y/N)";
 
   return new Promise((resolve) => {
@@ -25,10 +48,7 @@ export async function selectOne(
   message: string,
   items: string[]
 ): Promise<string> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const rl = createRl();
 
   console.log(`\n${message}\n`);
   for (let i = 0; i < items.length; i++) {
@@ -58,10 +78,7 @@ export async function selectMultiple(
   message: string,
   items: string[]
 ): Promise<string[]> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const rl = createRl();
 
   console.log(`\n${message}\n`);
   for (let i = 0; i < items.length; i++) {

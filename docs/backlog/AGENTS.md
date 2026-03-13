@@ -28,7 +28,7 @@ Instructions for AI agents working with the Machete backlog system.
 
 1. **Update the story file**: set `status: done` and add `completed: YYYY-MM-DD` to the frontmatter.
 2. **Move the story file**: from `stories/` to `stories/implemented/`.
-3. **Update IDEAS.md**: check the box (`- [x]`) and move the line to the **Done** section at the bottom using the format: `` - [x] `MACH-NNNN` (YYYY-MM-DD) Description ``
+3. **Update IDEAS.md**: **remove** the item from its category section (Commands, AI, etc.) and **add** it to the **Done** section at the bottom using the format: `` - [x] `MACH-NNNN` (YYYY-MM-DD) Description ``. Done items must NOT remain in the active sections — they only appear in the Done section.
 
 Never skip any of these steps. They must all happen together.
 

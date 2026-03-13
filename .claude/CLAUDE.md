@@ -27,13 +27,27 @@ Git toolset CLI — `@frontier-collective/machete`
   - `--dry-run`
 - `machete release` — Full git-flow release: version bump, changelog, branch/tag management, GH release, npm publish
   - `--dry-run`, `--noai`, `--no-publish`
-- `machete prune` — Delete local branches with no remote equivalent
-  - `--dry-run`, `--force`, `--remote <name>`, `-i`/`--interactive`
+  - No args → interactive version selector with preview (patch/minor/major)
+- `machete pr` — AI-powered pull request creation via Claude + `gh pr create`
+  - `--draft`, `--dry-run`, `--base <branch>`, `--noai`, `--title <text>`, `--body <text>`
+  - Auto-detects base branch: `--base` flag → `prBaseBranch` config → remote default → prompt
+- `machete prune` — Safe branch cleanup: squash-merge detection, 3-phase commit reachability
+  - `--dry-run`, `--remote <name>`, `-i`/`--interactive`, `-n`/`--no-interaction`
+  - No `--force` — prune is always safe by design
 
 ## Configuration (4-file system)
 
 Merge order: defaults → `~/.machete/macheterc` → `~/.machete/credentials` → `<repo>/.macheterc` → `<repo>/.machete.env`
 
-- Config keys: `protectedBranches`, `defaultRemote`
+- Config keys: `protectedBranches`, `defaultRemote`, `prBaseBranch`
 - Credential keys (auto-routed to secrets files): `anthropicApiKey`, `githubToken`, `bitbucketToken`
 - Default protected branches: `main`, `master`, `develop`
+
+## Backlog
+
+Stories and ideas live in `docs/backlog/`. See `docs/backlog/AGENTS.md` for the full workflow. Key rules:
+
+- Ideas in `IDEAS.md`, stories in `stories/`, completed stories in `stories/implemented/`
+- Story IDs are sequential: `MACH-0001`, `MACH-0002`, etc.
+- When completing a story: update status to `done`, move file to `implemented/`, **remove** from active IDEAS.md section, **add** to Done section
+- Commit messages use `[MACH-NNNN]` prefix

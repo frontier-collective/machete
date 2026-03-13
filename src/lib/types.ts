@@ -1,6 +1,7 @@
 export interface MacheteConfig {
   protectedBranches: string[];
   defaultRemote: string;
+  prBaseBranch?: string;
   anthropicApiKey?: string;
   githubToken?: string;
   bitbucketToken?: string;
@@ -21,6 +22,7 @@ export const ARRAY_KEYS: ReadonlySet<ConfigKey> = new Set([
 export const ALL_KEYS: ReadonlySet<ConfigKey> = new Set([
   "protectedBranches",
   "defaultRemote",
+  "prBaseBranch",
   "anthropicApiKey",
   "githubToken",
   "bitbucketToken",
