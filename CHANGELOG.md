@@ -2,6 +2,23 @@
 
 All notable changes to Machete are documented here.
 
+## [0.3.0] - 2026-03-13
+
+### Features
+
+- Add `machete pr` command to create GitHub pull requests with AI-generated titles and descriptions, including `--draft`, `--dry-run`, `--noai`, `--base`, `--title`, and `--body` options
+- Add interactive version selection for `machete release` — omitting the bump argument now prompts with a menu showing current → next version for each option
+
+### Improvements
+
+- Improve Ctrl+C handling across all interactive prompts — readline interfaces now exit cleanly instead of hanging
+- Add explicit `process.exit(0)` after command completion to prevent background HTTP connection pools (e.g. Anthropic SDK) from stalling the process
+
+### Fixes
+
+- Fix `gh pr create` to use safe argument passing via `execFileSync` instead of shell interpolation, preventing issues with special characters in titles or bodies
+
+
 ## [0.2.0] - 2026-03-13
 
 ### Features
