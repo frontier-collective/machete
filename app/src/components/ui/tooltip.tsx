@@ -26,4 +26,13 @@ const TooltipContent = React.forwardRef<
 ));
 TooltipContent.displayName = TooltipPrimitive.Content.displayName;
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider };
+/** Styled keyboard shortcut badge for use inside TooltipContent */
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="ml-1.5 inline-flex items-center gap-0.5 rounded border border-primary-foreground/25 bg-primary-foreground/10 px-1 py-0.5 font-mono text-[10px] leading-none text-primary-foreground/80">
+      {children}
+    </kbd>
+  );
+}
+
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, Kbd };

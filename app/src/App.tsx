@@ -12,6 +12,7 @@ import { BranchesView } from "@/components/branches/BranchesView";
 import { PrView } from "@/components/pr/PrView";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { useDrag } from "@/hooks/useDrag";
+import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import { RepoContext, RepoPathContext, StatusContext, SelectionContext, LayoutContext } from "@/hooks/useRepo";
 import { useRepoLayout } from "@/hooks/useRepoLayout";
 import type { RepoStatus } from "@/types";
@@ -64,6 +65,21 @@ function App() {
     updateLayout({ logPanelPct: Math.min(70, Math.max(15, layout.logPanelPct + pctDelta)) });
   }, [layout.logPanelPct, updateLayout]);
   const logDragHandle = useDrag(onLogDrag, "vertical");
+
+  // ── Global keyboard shortcuts ────────────────────────────────────
+  const toggleAction = useCallback((action: ToolbarAction) => {
+    setActiveAction((prev) => (prev === action ? null : action));
+  }, []);
+
+  const shortcuts = useMemo<ShortcutDef[]>(
+    () => [
+      { key: ",", meta: true, handler: () => toggleAction("settings") },            // ⌘, — Settings
+      { key: "p", meta: true, shift: true, handler: () => toggleAction("pr") },     // ⌘⇧P — PR panel
+      { key: "b", meta: true, shift: true, handler: () => toggleAction("prune") },  // ⌘⇧B — Branches/prune
+    ],
+    [toggleAction]
+  );
+  useKeyboardShortcuts(shortcuts);
 
   // Persist repo path
   useEffect(() => {
@@ -250,6 +266,7 @@ function App() {
               title="Create Pull Request"
               open={activeAction === "pr"}
               onClose={() => setActiveAction(null)}
+              raw
             >
               <ErrorBoundary>
                 <PrView />
@@ -260,6 +277,7 @@ function App() {
               title="Branch Management"
               open={activeAction === "prune"}
               onClose={() => setActiveAction(null)}
+              raw
             >
               <ErrorBoundary>
                 <BranchesView />

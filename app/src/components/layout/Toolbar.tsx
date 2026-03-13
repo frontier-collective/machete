@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -14,12 +14,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRepoPath, useStatus } from "@/hooks/useRepo";
+import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import { useTheme } from "@/hooks/useTheme";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
+  Kbd,
 } from "@/components/ui/tooltip";
 import logoSvg from "@/assets/machete-logo.svg";
 
@@ -99,6 +101,18 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
     }
   }
 
+  // Keyboard shortcuts for push/pull/fetch
+  const toolbarShortcuts = useMemo<ShortcutDef[]>(
+    () => [
+      { key: "u", meta: true, shift: true, handler: handlePush },    // ⌘⇧U — Push
+      { key: "l", meta: true, shift: true, handler: handlePull },    // ⌘⇧L — Pull
+      { key: "f", meta: true, shift: true, handler: handleFetch },   // ⌘⇧F — Fetch
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [repoPath, pushLoading, pullLoading, fetchLoading]
+  );
+  useKeyboardShortcuts(toolbarShortcuts);
+
   return (
     <TooltipProvider delayDuration={300}>
       <header
@@ -162,7 +176,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Pull</TooltipContent>
+                  <TooltipContent>Pull<Kbd>⌘⇧L</Kbd></TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -181,7 +195,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Push</TooltipContent>
+                  <TooltipContent>Push<Kbd>⌘⇧U</Kbd></TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -200,7 +214,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                       )}
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Fetch</TooltipContent>
+                  <TooltipContent>Fetch<Kbd>⌘⇧F</Kbd></TooltipContent>
                 </Tooltip>
               </div>
             </div>
@@ -220,7 +234,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                 <GitPullRequest className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Create PR</TooltipContent>
+            <TooltipContent>Create PR<Kbd>⌘⇧P</Kbd></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -234,7 +248,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                 <Scissors className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Prune Branches</TooltipContent>
+            <TooltipContent>Prune Branches<Kbd>⌘⇧B</Kbd></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -248,7 +262,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                 <Settings className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Settings</TooltipContent>
+            <TooltipContent>Settings<Kbd>⌘,</Kbd></TooltipContent>
           </Tooltip>
 
           <div className="mx-1 h-4 w-px bg-border" />

@@ -25,7 +25,9 @@ import {
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
+  Kbd,
 } from "@/components/ui/tooltip";
+import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -184,6 +186,17 @@ export function RepoSidebar({
     ? repoPath.replace(/\/+$/, "").split("/").pop() || "Repo"
     : null;
 
+  // Sidebar keyboard shortcuts
+  const sidebarShortcuts = useMemo<ShortcutDef[]>(
+    () => [
+      { key: "n", meta: true, shift: true, handler: () => handleCreateBranch(status?.branch ?? "HEAD") }, // ⌘⇧N — New branch
+      { key: "s", meta: true, shift: true, handler: () => handleAnalyzeSafety() },                        // ⌘⇧S — Analyze safety
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [status?.branch, repoPath, safetyLoading]
+  );
+  useKeyboardShortcuts(sidebarShortcuts);
+
   return (
     <TooltipProvider delayDuration={400}>
     <aside className="flex h-full flex-col bg-muted/30 shrink-0" style={{ width: width ?? 220 }}>
@@ -219,34 +232,42 @@ export function RepoSidebar({
               onToggle={() => updateLayout({ branchesOpen: !branchesOpen })}
               action={
                 <div className="flex items-center gap-0.5">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleCreateBranch(status?.branch ?? "HEAD");
-                    }}
-                    title="Create branch"
-                  >
-                    <Plus className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-5 w-5 p-0"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleAnalyzeSafety();
-                    }}
-                    title="Analyze branch safety"
-                  >
-                    {safetyLoading ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Shield className="h-3 w-3" />
-                    )}
-                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCreateBranch(status?.branch ?? "HEAD");
+                        }}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Create branch<Kbd>⌘⇧N</Kbd></TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-5 w-5 p-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAnalyzeSafety();
+                        }}
+                      >
+                        {safetyLoading ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Shield className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Analyze branch safety<Kbd>⌘⇧S</Kbd></TooltipContent>
+                  </Tooltip>
                 </div>
               }
             />
@@ -460,13 +481,13 @@ function BranchTreeView({
             <ContextMenu key={b.name}>
               <ContextMenuTrigger asChild>
                 <button
-                  className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-xs text-left ${
+                  className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-xs text-left outline-none ${
                     b.current
                       ? "font-semibold text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
                   } ${isChecking ? "opacity-50" : ""}`}
                   style={{ paddingLeft: `${basePad + depth * 14}px`, paddingRight: 8 }}
-                  onClick={() => onSelect(b.name)}
+                  onClick={(e) => { if (e.button === 0) onSelect(b.name); }}
                   onDoubleClick={() => !b.current && onCheckout(b.name)}
                 >
                   {showDirtyDot ? (

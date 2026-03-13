@@ -6,10 +6,12 @@ interface SlideOverProps {
   title: string;
   open: boolean;
   onClose: () => void;
+  /** When true, children manage their own scrolling — no wrapper ScrollArea or padding */
+  raw?: boolean;
   children: React.ReactNode;
 }
 
-export function SlideOver({ title, open, onClose, children }: SlideOverProps) {
+export function SlideOver({ title, open, onClose, raw, children }: SlideOverProps) {
   if (!open) return null;
 
   return (
@@ -22,9 +24,13 @@ export function SlideOver({ title, open, onClose, children }: SlideOverProps) {
         </Button>
       </div>
       {/* Content */}
-      <ScrollArea className="flex-1">
-        <div className="p-4">{children}</div>
-      </ScrollArea>
+      {raw ? (
+        <div className="flex-1 min-h-0 flex flex-col">{children}</div>
+      ) : (
+        <ScrollArea className="flex-1">
+          <div className="p-4">{children}</div>
+        </ScrollArea>
+      )}
     </div>
   );
 }

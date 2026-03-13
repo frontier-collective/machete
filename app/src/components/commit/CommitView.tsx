@@ -3,6 +3,14 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
 import { Wand2, Loader2, ChevronDown } from "lucide-react";
 import { useRepoPath, useStatus, useSelection, useLayout } from "@/hooks/useRepo";
+import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+  Kbd,
+} from "@/components/ui/tooltip";
 import { useDrag } from "@/hooks/useDrag";
 import type { CommitContext, CommitDetail, FileStatus } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -108,6 +116,7 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
   }
 
   return (
+    <TooltipProvider delayDuration={400}>
     <div className="flex h-full flex-col py-2">
       {/* Main area: files + diff */}
       <div ref={mainAreaRef} className="flex flex-1 min-h-0 overflow-hidden">
@@ -227,45 +236,66 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 
 // ─── File status icon (A/M/D/R) ─────────────────────────────────────
 
 function FileStatusIcon({ status }: { status?: string }) {
-  switch (status) {
-    case "A":
-      return (
-        <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-green-600 dark:text-green-400 bg-green-500/15 shrink-0">
-          A
-        </span>
-      );
-    case "D":
-      return (
-        <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-red-600 dark:text-red-400 bg-red-500/15 shrink-0">
-          D
-        </span>
-      );
-    case "R":
-      return (
-        <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-purple-600 dark:text-purple-400 bg-purple-500/15 shrink-0">
-          R
-        </span>
-      );
-    case "C":
-      return (
-        <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-500/15 shrink-0">
-          C
-        </span>
-      );
-    case "M":
-    default:
-      return (
-        <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/15 shrink-0">
-          M
-        </span>
-      );
-  }
+  const labels: Record<string, string> = {
+    A: "Added",
+    D: "Deleted",
+    R: "Renamed",
+    C: "Copied",
+    M: "Modified",
+  };
+  const label = labels[status ?? "M"] ?? "Modified";
+
+  const badge = (() => {
+    switch (status) {
+      case "A":
+        return (
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-green-600 dark:text-green-400 bg-green-500/15 shrink-0">
+            A
+          </span>
+        );
+      case "D":
+        return (
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-red-600 dark:text-red-400 bg-red-500/15 shrink-0">
+            D
+          </span>
+        );
+      case "R":
+        return (
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-purple-600 dark:text-purple-400 bg-purple-500/15 shrink-0">
+            R
+          </span>
+        );
+      case "C":
+        return (
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-500/15 shrink-0">
+            C
+          </span>
+        );
+      case "M":
+      default:
+        return (
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/15 shrink-0">
+            M
+          </span>
+        );
+    }
+  })();
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {badge}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 // ─── Context lines dropdown ─────────────────────────────────────────
@@ -293,35 +323,39 @@ function ContextLinesDropdown({
   }, [open]);
 
   return (
-    <div ref={ref} className="relative shrink-0">
-      <button
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-        onClick={() => setOpen(!open)}
-        title="Lines of context"
-      >
-        <span className="font-mono">{value}</span>
-        <span>lines</span>
-        <ChevronDown className="h-3 w-3" />
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 rounded-md border bg-card shadow-md py-1 min-w-[5rem]">
-          {CONTEXT_OPTIONS.map((n) => (
-            <button
-              key={n}
-              className={`flex w-full items-center px-3 py-1 text-xs hover:bg-accent ${
-                n === value ? "font-semibold text-foreground" : "text-muted-foreground"
-              }`}
-              onClick={() => {
-                onChange(n);
-                setOpen(false);
-              }}
-            >
-              {n} {n === 1 ? "line" : "lines"}
-            </button>
-          ))}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div ref={ref} className="relative shrink-0">
+          <button
+            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            onClick={() => setOpen(!open)}
+          >
+            <span className="font-mono">{value}</span>
+            <span>lines</span>
+            <ChevronDown className="h-3 w-3" />
+          </button>
+          {open && (
+            <div className="absolute right-0 top-full mt-1 z-50 rounded-md border bg-card shadow-md py-1 min-w-[5rem]">
+              {CONTEXT_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  className={`flex w-full items-center px-3 py-1 text-xs hover:bg-accent ${
+                    n === value ? "font-semibold text-foreground" : "text-muted-foreground"
+                  }`}
+                  onClick={() => {
+                    onChange(n);
+                    setOpen(false);
+                  }}
+                >
+                  {n} {n === 1 ? "line" : "lines"}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      </TooltipTrigger>
+      <TooltipContent>Lines of context around changes</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -504,6 +538,22 @@ function StagingView({ repoPath }: { repoPath: string }) {
     }
   }
 
+  const staged = context?.staged ?? [];
+  const unstaged = context?.unstaged ?? [];
+  const canCommit = staged.length > 0 && message.trim().length > 0 && !committing;
+
+  // Keyboard shortcuts for commit actions (must be before any early returns)
+  const commitShortcuts = useMemo<ShortcutDef[]>(
+    () => [
+      { key: "Enter", meta: true, handler: () => { if (canCommit) handleCommit(false); } },         // ⌘↵ — Commit
+      { key: "Enter", meta: true, shift: true, handler: () => { if (canCommit) handleCommit(true); } }, // ⌘⇧↵ — Commit & Push
+      { key: "g", meta: true, shift: true, handler: () => { if (staged.length > 0) handleGenerate(); } }, // ⌘⇧G — Generate AI
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canCommit, staged.length, generating]
+  );
+  useKeyboardShortcuts(commitShortcuts);
+
   if (loading && !context) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground text-xs">
@@ -512,11 +562,8 @@ function StagingView({ repoPath }: { repoPath: string }) {
     );
   }
 
-  const staged = context?.staged ?? [];
-  const unstaged = context?.unstaged ?? [];
-  const canCommit = staged.length > 0 && message.trim().length > 0 && !committing;
-
   return (
+    <TooltipProvider delayDuration={400}>
     <div ref={containerRef} className="flex h-full flex-col py-2 gap-1">
       {error && (
         <div className="rounded-md bg-destructive/10 px-4 py-2 text-xs text-destructive mb-2">
@@ -542,9 +589,14 @@ function StagingView({ repoPath }: { repoPath: string }) {
                 )}
               </h3>
               {staged.length > 0 && (
-                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleUnstageAll}>
-                  Unstage All
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleUnstageAll}>
+                      Unstage All
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Move all files back to unstaged</TooltipContent>
+                </Tooltip>
               )}
             </div>
             <ScrollArea className="flex-1 min-h-0">
@@ -585,9 +637,14 @@ function StagingView({ repoPath }: { repoPath: string }) {
                 )}
               </h3>
               {unstaged.length > 0 && (
-                <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleStageAll}>
-                  Stage All
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleStageAll}>
+                      Stage All
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Stage all files for commit</TooltipContent>
+                </Tooltip>
               )}
             </div>
             <ScrollArea className="flex-1 min-h-0">
@@ -663,40 +720,56 @@ function StagingView({ repoPath }: { repoPath: string }) {
           className="flex-1 h-full resize-none text-xs focus-visible:ring-brand focus-visible:border-brand"
         />
         <div className="flex flex-col gap-2">
-          <Button
-            variant="brand"
-            size="sm"
-            onClick={handleGenerate}
-            disabled={generating || staged.length === 0}
-          >
-            {generating ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Wand2 className="mr-2 h-4 w-4" />
-            )}
-            Generate with AI
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="brand"
+                size="sm"
+                onClick={handleGenerate}
+                disabled={generating || staged.length === 0}
+              >
+                {generating ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Wand2 className="mr-2 h-4 w-4" />
+                )}
+                Generate with AI
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Generate commit message<Kbd>⌘⇧G</Kbd></TooltipContent>
+          </Tooltip>
           <div className="flex gap-2">
-            <Button
-              size="sm"
-              onClick={() => handleCommit(false)}
-              disabled={!canCommit}
-            >
-              {committing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Commit
-            </Button>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => handleCommit(true)}
-              disabled={!canCommit}
-            >
-              Commit & Push
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  onClick={() => handleCommit(false)}
+                  disabled={!canCommit}
+                >
+                  {committing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Commit
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Commit staged changes<Kbd>⌘↵</Kbd></TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleCommit(true)}
+                  disabled={!canCommit}
+                >
+                  Commit & Push
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Commit and push<Kbd>⌘⇧↵</Kbd></TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
     </div>
+    </TooltipProvider>
   );
 }
 

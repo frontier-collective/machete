@@ -28,6 +28,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 
 export function BranchesView() {
   const { repoPath } = useRepoPath();
@@ -145,10 +151,17 @@ export function BranchesView() {
             <span>Protects important branches — never deletes unsafely</span>
           </div>
         </div>
-        <Button onClick={fetchClassification} className="mt-2">
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Scan Branches
-        </Button>
+        <TooltipProvider delayDuration={400}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button onClick={fetchClassification} className="mt-2">
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Scan Branches
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Analyze branches for safe deletion</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
     );
   }
@@ -158,6 +171,7 @@ export function BranchesView() {
   const keptCount = (classification?.protected.length ?? 0) + (classification?.kept.length ?? 0);
 
   return (
+    <TooltipProvider delayDuration={400}>
     <div className="flex h-full flex-col">
       {/* Loading overlay */}
       {loading && (
@@ -182,9 +196,14 @@ export function BranchesView() {
             {classification.unsafe.length > 0 && (
               <Badge variant="unsafe">{classification.unsafe.length} unsafe</Badge>
             )}
-            <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={fetchClassification}>
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={fetchClassification}>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Re-scan branches</TooltipContent>
+            </Tooltip>
           </div>
 
           {/* Error / success banners */}
@@ -254,9 +273,14 @@ export function BranchesView() {
                     <Badge variant="safe">{classification.safe.length}</Badge>
                   </div>
                   {classification.safe.length > 0 && (
-                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={selectAllSafe}>
-                      Select All
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={selectAllSafe}>
+                          Select All
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Select all safe-to-delete branches</TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
                 <div className="px-3 pb-3">
@@ -346,26 +370,36 @@ export function BranchesView() {
                 {selected.size} of {classification.safe.length} selected
               </p>
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    selectAllSafe();
-                    setConfirmOpen(true);
-                  }}
-                >
-                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                  Prune All Safe
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  disabled={selected.size === 0}
-                  onClick={() => setConfirmOpen(true)}
-                >
-                  <Trash2 className="mr-2 h-3.5 w-3.5" />
-                  Prune Selected ({selected.size})
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        selectAllSafe();
+                        setConfirmOpen(true);
+                      }}
+                    >
+                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                      Prune All Safe
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete all branches marked safe</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={selected.size === 0}
+                      onClick={() => setConfirmOpen(true)}
+                    >
+                      <Trash2 className="mr-2 h-3.5 w-3.5" />
+                      Prune Selected ({selected.size})
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete selected branches</TooltipContent>
+                </Tooltip>
               </div>
             </div>
           )}
@@ -405,5 +439,6 @@ export function BranchesView() {
         </DialogContent>
       </Dialog>
     </div>
+    </TooltipProvider>
   );
 }
