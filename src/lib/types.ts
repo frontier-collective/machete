@@ -34,16 +34,27 @@ export interface ConfigSource {
 
 export interface PruneOptions {
   dryRun: boolean;
-  force: boolean;
   remote: string;
   interactive: boolean;
+  noInteraction: boolean;
 }
 
 export interface PruneResult {
   deleted: string[];
   skippedProtected: string[];
+  skippedUnsafe: string[];
   total: number;
   dryRun: boolean;
+}
+
+export interface BranchSafetyResult {
+  branch: string;
+  safe: boolean;
+  onRemote: boolean;
+  unpushedCommitCount: number;
+  localOnlyCommitCount: number;
+  mergedInto: string[];
+  squashMergedInto: string[];
 }
 
 export interface BranchInfo {

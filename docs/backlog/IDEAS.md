@@ -4,6 +4,7 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 
 ## Commands
 
+- [x] `MACH-0004` Make `machete prune` safe — verify all commits exist on remote and another local branch before deleting
 - [ ] `MACH-0001` Add `machete branch` — create branches with consistent naming conventions (feature/, bugfix/, hotfix/) with optional ticket ID prefixes
 - [ ] Add `machete log` — pretty-printed git log with graph, author coloring, and relative dates
 - [ ] Add `machete sync` — fetch + rebase current branch onto its upstream, with stash/unstash around dirty trees
@@ -50,3 +51,5 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 
 - [x] `MACH-0002` (2026-03-13) Add unit tests for config merging, arg parsing, branch filtering, and credential masking
 - [x] `MACH-0003` (2026-03-13) Add integration tests that exercise the full release flow in a temp git repo
+- [x] `MACH-0004` (2026-03-13) Make `machete prune` safe — squash-merge detection, 3-phase commit reachability
+- [x] `MACH-0005` (2026-03-13) Whetstone-aware commit — separate `.whetstone/` files in staging prompt, diff stats display

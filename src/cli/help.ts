@@ -21,7 +21,7 @@ ${BOLD}COMMANDS${RESET}
   ${GREEN}init${RESET}      Initialize .macheterc in the current repository
   ${GREEN}commit${RESET}    Generate an AI commit message and commit staged changes ${DIM}(--dry-run)${RESET}
   ${GREEN}config${RESET}    Read or write configuration values ${DIM}(-g, --list, --add, --remove)${RESET}
-  ${GREEN}prune${RESET}     Delete local branches with no remote equivalent ${DIM}(--dry-run, --force, -i)${RESET}
+  ${GREEN}prune${RESET}     Safely delete fully-merged local branches ${DIM}(--dry-run, -i, -n)${RESET}
   ${GREEN}release${RESET}   Git-flow release with changelog, GH release, and npm publish ${DIM}(--dry-run, --noai, --no-publish)${RESET}
 
 ${BOLD}OPTIONS${RESET}
@@ -46,10 +46,10 @@ ${BOLD}RELEASE USAGE${RESET}
   ${GREEN}--no-publish${RESET}     Stop after push ${DIM}(skip GH release + npm publish)${RESET}
 
 ${BOLD}PRUNE OPTIONS${RESET}
-  ${GREEN}--dry-run${RESET}        Show branches that would be deleted without deleting
-  ${GREEN}--force${RESET}          Skip confirmation prompt
-  ${GREEN}--remote${RESET} ${YELLOW}<name>${RESET}  Remote to compare against ${DIM}(default: origin)${RESET}
-  ${GREEN}-i, --interactive${RESET} Select which branches to delete interactively
+  ${GREEN}--dry-run${RESET}            Show what would happen without deleting
+  ${GREEN}--remote${RESET} ${YELLOW}<name>${RESET}      Remote to compare against ${DIM}(default: from machete config)${RESET}
+  ${GREEN}-i, --interactive${RESET}    Select which branches to delete interactively
+  ${GREEN}-n, --no-interaction${RESET} Skip confirmation prompt ${DIM}(for scripting)${RESET}
 
 ${BOLD}CONFIGURATION${RESET}
   Run ${GREEN}machete init${RESET} or create a ${CYAN}.macheterc${RESET} file in your repo root.

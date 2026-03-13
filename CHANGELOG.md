@@ -2,6 +2,20 @@
 
 All notable changes to Machete are documented here.
 
+## [0.2.0] - 2026-03-13
+
+### Features
+
+- Add safe pruning to `machete prune` — branches are now classified before deletion, keeping any branch with unmerged or unpushed work and detecting squash-merged branches as safe to remove
+- Add diff stat display to `machete commit` — staged and unstaged files now show line-level `+`/`-` counts inline when reviewing changes before committing
+- Add `.whetstone/` file filtering in `machete commit` — whetstone files are grouped separately when prompting to stage, with an option to stage all changes excluding them
+
+### Improvements
+
+- Replace `--force` flag on `prune` with `-n`/`--no-interaction` for scripting use; the prune summary now shows a full breakdown of kept, protected, deletable, and unsafe branches before acting
+- Update `prune` help text to reflect new flag names and safer default behaviour
+
+
 ## [0.1.3] - 2026-03-12
 
 ### Features
