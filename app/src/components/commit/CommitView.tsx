@@ -928,6 +928,11 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
     return entry;
   });
 
+  // Detect whether we need both gutter columns
+  const hasOld = parsed.some((p) => p.type === "del" || p.type === "ctx");
+  const hasNew = parsed.some((p) => p.type === "add" || p.type === "ctx");
+  const showBothGutters = hasOld && hasNew;
+
   return (
     <pre className="text-xs leading-relaxed">
       <code>
@@ -935,7 +940,9 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
           if (p.type === "no-newline") {
             return (
               <div key={i} className="flex bg-amber-500/15">
-                <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30" />
+                {showBothGutters && (
+                  <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30" />
+                )}
                 <span className="inline-block w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50" />
                 <span className="flex-1 whitespace-pre-wrap break-all px-2 text-amber-600 dark:text-amber-400 italic">
                   \ No newline at end of file
@@ -975,11 +982,13 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
 
           return (
             <div key={i} className={`flex ${bgClass}`}>
-              <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30">
-                {p.oldNum ?? ""}
-              </span>
+              {showBothGutters && (
+                <span className="inline-block w-10 shrink-0 select-none text-right pr-1 text-muted-foreground/50 border-r border-border/30">
+                  {p.oldNum ?? ""}
+                </span>
+              )}
               <span className="inline-block w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50">
-                {p.newNum ?? ""}
+                {showBothGutters ? (p.newNum ?? "") : (p.oldNum ?? p.newNum ?? "")}
               </span>
               <span className={`flex-1 whitespace-pre-wrap break-all px-2 ${textClass}`}>
                 {p.type === "add"
