@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Sun,
   Moon,
@@ -6,6 +8,8 @@ import {
   Settings,
   ArrowUp,
   ArrowDown,
+  RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useRepo } from "@/hooks/useRepo";
@@ -25,12 +29,55 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ activeAction, onAction }: ToolbarProps) {
-  const { status } = useRepo();
+  const { repoPath, status, refreshStatus } = useRepo();
   const { theme, toggle } = useTheme();
+
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pullLoading, setPullLoading] = useState(false);
+  const [fetchLoading, setFetchLoading] = useState(false);
 
   const toggleAction = (action: ToolbarAction) => {
     onAction(activeAction === action ? null : action);
   };
+
+  async function handlePush() {
+    if (!repoPath || pushLoading) return;
+    setPushLoading(true);
+    try {
+      await invoke("push_current_branch", { repoPath });
+      refreshStatus();
+    } catch (e) {
+      console.error("Push failed:", e);
+    } finally {
+      setPushLoading(false);
+    }
+  }
+
+  async function handlePull() {
+    if (!repoPath || pullLoading) return;
+    setPullLoading(true);
+    try {
+      await invoke("pull_current_branch", { repoPath });
+      refreshStatus();
+    } catch (e) {
+      console.error("Pull failed:", e);
+    } finally {
+      setPullLoading(false);
+    }
+  }
+
+  async function handleFetch() {
+    if (!repoPath || fetchLoading) return;
+    setFetchLoading(true);
+    try {
+      await invoke("fetch_remote", { repoPath });
+      refreshStatus();
+    } catch (e) {
+      console.error("Fetch failed:", e);
+    } finally {
+      setFetchLoading(false);
+    }
+  }
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -62,6 +109,66 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                   )}
                 </span>
               )}
+
+              {/* Push / Pull / Fetch */}
+              <div className="flex items-center gap-0.5 ml-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={handlePull}
+                      disabled={pullLoading || (!status.behindCount && !pullLoading)}
+                    >
+                      {pullLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Pull</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={handlePush}
+                      disabled={pushLoading || (!status.aheadCount && !pushLoading)}
+                    >
+                      {pushLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Push</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={handleFetch}
+                      disabled={fetchLoading}
+                    >
+                      {fetchLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Fetch</TooltipContent>
+                </Tooltip>
+              </div>
             </>
           )}
         </div>

@@ -171,10 +171,10 @@ Scope: A single-repo window with permanent panels matching the layout design abo
 - [x] Draggable panel dividers (staged/unstaged, left/right, commit bar height)
 - [x] localStorage persistence for repo path across HMR reloads
 - [x] React ErrorBoundary for crash resilience
-- [ ] Sourcetree-style layout: sidebar explorer + toolbar + permanent panels
-- [ ] Sidebar: branch/remote/tag tree (read-only, shows current branch)
-- [ ] Toolbar: PR, Prune, Settings as action buttons
-- [ ] Commit log panel (top of main area, simple list)
+- [x] Sourcetree-style layout: sidebar explorer + toolbar + permanent panels
+- [x] Sidebar: branch/remote/tag tree (read-only, shows current branch)
+- [x] Toolbar: PR, Prune, Settings as action buttons
+- [x] Commit log panel (top of main area, simple list)
 
 #### Commit workflow
 - [x] Repo open via folder picker
@@ -185,25 +185,25 @@ Scope: A single-repo window with permanent panels matching the layout design abo
 - [x] AI commit message generation (invoke `machete commit --json`)
 - [x] Commit message editor (resizable)
 - [x] Commit and Commit & Push buttons
-- [ ] Push/pull with remote status indicator
+- [x] Push/pull with remote status indicator
 
 #### PR (toolbar action)
 - [x] PR creation view with AI generation
 - [x] Auto-detect base branch
 - [x] Draft toggle
-- [ ] Move from full-page view to slide-over/dialog triggered by toolbar
+- [x] Move from full-page view to slide-over/dialog triggered by toolbar
 
 #### Branch management (toolbar action)
 - [x] Prune integration (`machete prune --json`)
-- [ ] Move from full-page view to dialog triggered by toolbar
+- [x] Move from full-page view to dialog triggered by toolbar
 
 ### Phase 2: Branch management
 
-- [ ] Commit graph / history view (branch visualization replacing simple list)
-- [ ] Branch list with safety indicators (from `machete prune --json`)
-- [ ] One-click safe prune (with squash-merge detection shown visually)
+- [x] Commit graph / history view (branch visualization replacing simple list)
+- [x] Branch list with safety indicators (from `machete prune --json`)
+- [x] One-click safe prune (with squash-merge detection shown visually)
 - [ ] Branch creation with machete naming conventions (`machete branch`)
-- [ ] Checkout / switch branches (click branch in sidebar)
+- [x] Checkout / switch branches (click branch in sidebar)
 - [ ] Merge / rebase with conflict resolution UI
 
 ### Phase 3: Multi-repo & workspaces

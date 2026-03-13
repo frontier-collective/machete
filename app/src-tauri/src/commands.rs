@@ -198,6 +198,35 @@ pub async fn push_current_branch(repo_path: String) -> Result<String, String> {
     Ok(format!("Pushed {}", branch))
 }
 
+#[tauri::command]
+pub async fn pull_current_branch(repo_path: String) -> Result<String, String> {
+    let branch = run_git(&repo_path, &["branch", "--show-current"])?;
+    run_git(&repo_path, &["pull", "origin", &branch])?;
+    Ok(format!("Pulled {}", branch))
+}
+
+#[tauri::command]
+pub async fn fetch_remote(repo_path: String) -> Result<String, String> {
+    run_git(&repo_path, &["fetch", "--prune"])?;
+    Ok("Fetched".to_string())
+}
+
+#[tauri::command]
+pub async fn create_branch(
+    repo_path: String,
+    name: String,
+    source: String,
+    checkout: bool,
+) -> Result<String, String> {
+    if checkout {
+        run_git(&repo_path, &["checkout", "-b", &name, &source])?;
+        Ok(format!("Created and switched to {}", name))
+    } else {
+        run_git(&repo_path, &["branch", &name, &source])?;
+        Ok(format!("Created branch {}", name))
+    }
+}
+
 // ─── Prune ──────────────────────────────────────────────────────────
 
 #[tauri::command]

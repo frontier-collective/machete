@@ -5,8 +5,8 @@ import { useRepo } from "@/hooks/useRepo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import type { CommitLogEntry } from "@/types";
-import { computeGraphLayout } from "./graphLayout";
-import { GraphColumn, LANE_WIDTH, ROW_HEIGHT } from "./GraphColumn";
+import { computeGraphLayout, type CommitGraphRow } from "./graphLayout";
+import { GraphColumn, LANE_WIDTH, ROW_HEIGHT, UNCOMMITTED_COLOR, laneColor } from "./GraphColumn";
 
 export function CommitLog() {
   const { repoPath, status, selectedBranch, selectedCommitHash, setSelectedCommitHash } = useRepo();
@@ -37,15 +37,40 @@ export function CommitLog() {
   }, [fetchLog, status]);
 
   // Compute graph layout from commits
-  const graphRows = useMemo(() => computeGraphLayout(commits), [commits]);
+  const baseGraphRows = useMemo(() => computeGraphLayout(commits), [commits]);
+
+  // Determine if there are uncommitted changes
+  const hasUncommitted = status && !status.isClean;
+
+  // Find the HEAD commit index — the one with "HEAD -> branch" in its refs
+  const headCommitIndex = useMemo(() => {
+    for (let i = 0; i < commits.length; i++) {
+      if (commits[i].refs.some((r) => r.startsWith("HEAD -> "))) return i;
+    }
+    return 0; // fallback to first
+  }, [commits]);
+
+  // When there are uncommitted changes, shift the entire graph right by one lane
+  // to reserve lane 0 for the grey uncommitted→HEAD line
+  const graphRows: CommitGraphRow[] = useMemo(() => {
+    if (!hasUncommitted) return baseGraphRows;
+    return baseGraphRows.map((row) => ({
+      ...row,
+      lane: row.lane + 1,
+      segments: row.segments.map((s) => ({
+        ...s,
+        fromLane: s.fromLane + 1,
+        toLane: s.toLane + 1,
+      })),
+      maxLane: row.maxLane + 1,
+    }));
+  }, [baseGraphRows, hasUncommitted]);
+
   const globalMaxLane = useMemo(
     () => graphRows.reduce((max, r) => Math.max(max, r.maxLane), 0),
     [graphRows]
   );
   const graphColWidth = (globalMaxLane + 1) * LANE_WIDTH + 8;
-
-  // Determine if there are uncommitted changes
-  const hasUncommitted = status && !status.isClean;
 
   // Ref map for scrolling to highlighted rows
   const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
@@ -104,21 +129,6 @@ export function CommitLog() {
     );
   }
 
-  // Build the uncommitted changes graph row: sits in lane 0,
-  // line below connects to the first commit, no line above
-  const uncommittedGraphRow = graphRows.length > 0
-    ? {
-        lane: graphRows[0].lane,
-        color: graphRows[0].color,
-        segments: graphRows[0].segments
-          .filter((s) => s.fromLane === s.toLane) // only pass-through lines
-          .map((s) => ({ ...s })),
-        maxLane: graphRows[0].maxLane,
-        hasLineAbove: false,
-        hasLineBelow: true,
-      }
-    : null;
-
   return (
     <ScrollArea className="h-full">
       <table className="w-full text-xs border-collapse">
@@ -132,8 +142,8 @@ export function CommitLog() {
           </tr>
         </thead>
         <tbody>
-          {/* Uncommitted changes row */}
-          {hasUncommitted && uncommittedGraphRow && (
+          {/* Uncommitted changes row — always at the top */}
+          {hasUncommitted && graphRows.length > 0 && (
             <tr
               className={`cursor-pointer ${
                 selectedCommitHash === null
@@ -144,7 +154,7 @@ export function CommitLog() {
               onClick={() => setSelectedCommitHash(null)}
             >
               <td className="p-0 align-middle border-0" style={{ width: graphColWidth }}>
-                <UncommittedGraphCell row={uncommittedGraphRow} globalMaxLane={globalMaxLane} />
+                <UncommittedGraphCell globalMaxLane={globalMaxLane} />
               </td>
               <td className="px-2 py-0 font-mono text-muted-foreground align-middle border-b border-border/40">
                 •
@@ -166,6 +176,15 @@ export function CommitLog() {
           {commits.map((commit, i) => {
             const isHighlighted = commit.hash === highlightHash;
             const isSelected = commit.hash === selectedCommitHash;
+            const isHeadCommit = i === headCommitIndex;
+            const graphRow = graphRows[i];
+
+            // Uncommitted line logic: grey line at lane 0 from top to HEAD
+            // Rows before HEAD: pass-through at lane 0
+            // HEAD row: curve from lane 0 to the commit's lane
+            const showUncommittedPassThrough = !!(hasUncommitted && i < headCommitIndex);
+            const showUncommittedCurve = !!(hasUncommitted && isHeadCommit);
+
             return (
               <tr
                 key={commit.hash}
@@ -185,7 +204,12 @@ export function CommitLog() {
               >
                 {/* Graph column — no border so lines are seamless */}
                 <td className="p-0 align-middle border-0" style={{ width: graphColWidth }}>
-                  <GraphColumn row={graphRows[i]} globalMaxLane={globalMaxLane} />
+                  <GraphColumn
+                    row={graphRow}
+                    globalMaxLane={globalMaxLane}
+                    uncommittedPassThrough={showUncommittedPassThrough}
+                    uncommittedCurveToHead={showUncommittedCurve}
+                  />
                 </td>
                 <td className="px-2 py-0 font-mono text-muted-foreground align-middle border-b border-border/40">
                   {commit.shortHash}
@@ -195,7 +219,7 @@ export function CommitLog() {
                     {commit.refs.length > 0 && (
                       <span className="flex gap-1 shrink-0">
                         {commit.refs.map((ref_) => (
-                          <RefBadge key={ref_} refName={ref_} />
+                          <RefBadge key={ref_} refName={ref_} laneColor={laneColor(graphRow.color)} />
                         ))}
                       </span>
                     )}
@@ -219,32 +243,17 @@ export function CommitLog() {
 
 /**
  * Special graph cell for the uncommitted changes row.
- * Shows an open circle (unfilled dot) at the HEAD lane position,
- * with a line going down to the first real commit.
+ * Always at the top, dot at lane 0 (leftmost), grey line going down.
  */
 function UncommittedGraphCell({
-  row,
   globalMaxLane,
 }: {
-  row: import("./graphLayout").CommitGraphRow;
   globalMaxLane: number;
 }) {
   const width = (globalMaxLane + 1) * LANE_WIDTH + 4;
   const midY = ROW_HEIGHT / 2;
   const DOT_RADIUS = 4;
-  const commitX = row.lane * LANE_WIDTH + LANE_WIDTH / 2;
-
-  const LANE_COLORS = [
-    "hsl(210, 80%, 55%)",
-    "hsl(340, 75%, 55%)",
-    "hsl(150, 65%, 45%)",
-    "hsl(30, 85%, 55%)",
-    "hsl(270, 65%, 60%)",
-    "hsl(180, 60%, 45%)",
-    "hsl(50, 80%, 50%)",
-    "hsl(0, 70%, 55%)",
-  ];
-  const color = LANE_COLORS[row.color % LANE_COLORS.length];
+  const dotX = LANE_WIDTH / 2; // Always lane 0
 
   return (
     <svg
@@ -253,51 +262,37 @@ function UncommittedGraphCell({
       className="block shrink-0"
       style={{ minWidth: width }}
     >
-      {/* Pass-through lines for other lanes */}
-      {row.segments.map((seg, i) => {
-        const x = seg.fromLane * LANE_WIDTH + LANE_WIDTH / 2;
-        const segColor = LANE_COLORS[seg.color % LANE_COLORS.length];
-        return (
-          <line
-            key={i}
-            x1={x}
-            y1={0}
-            x2={x}
-            y2={ROW_HEIGHT}
-            stroke={segColor}
-            strokeWidth={2}
-          />
-        );
-      })}
-
-      {/* Line from dot down to next row */}
+      {/* Grey line from dot down to next row */}
       <line
-        x1={commitX}
+        x1={dotX}
         y1={midY + DOT_RADIUS}
-        x2={commitX}
+        x2={dotX}
         y2={ROW_HEIGHT}
-        stroke={color}
+        stroke={UNCOMMITTED_COLOR}
         strokeWidth={2}
       />
 
-      {/* Open circle (unfilled) for uncommitted changes */}
+      {/* Open circle (unfilled) with grey stroke */}
       <circle
-        cx={commitX}
+        cx={dotX}
         cy={midY}
         r={DOT_RADIUS}
         fill="var(--background, #fff)"
-        stroke={color}
+        stroke={UNCOMMITTED_COLOR}
         strokeWidth={2}
       />
     </svg>
   );
 }
 
-function RefBadge({ refName }: { refName: string }) {
+function RefBadge({ refName, laneColor: color }: { refName: string; laneColor: string }) {
   if (refName.startsWith("HEAD -> ")) {
     const branch = refName.replace("HEAD -> ", "");
     return (
-      <Badge variant="default" className="text-[10px] px-1.5 py-0 h-4 font-mono">
+      <Badge
+        className="text-[10px] px-1.5 py-0 h-4 font-mono text-white border-0"
+        style={{ backgroundColor: color }}
+      >
         {branch}
       </Badge>
     );
@@ -310,15 +305,12 @@ function RefBadge({ refName }: { refName: string }) {
       </Badge>
     );
   }
-  if (refName.includes("/")) {
-    return (
-      <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-mono">
-        {refName}
-      </Badge>
-    );
-  }
+  // Remote branch or other ref — use lane color with reduced opacity
   return (
-    <Badge variant="safe" className="text-[10px] px-1.5 py-0 h-4 font-mono">
+    <Badge
+      className="text-[10px] px-1.5 py-0 h-4 font-mono text-white/90 border-0"
+      style={{ backgroundColor: color, opacity: 0.75 }}
+    >
       {refName}
     </Badge>
   );

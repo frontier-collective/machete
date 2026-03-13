@@ -19,6 +19,9 @@ const LANE_COLORS = [
   "hsl(0, 70%, 55%)",   // red
 ];
 
+/** Grey color for the uncommitted changes line */
+export const UNCOMMITTED_COLOR = "hsl(0, 0%, 55%)";
+
 function laneColor(colorIndex: number): string {
   return LANE_COLORS[colorIndex % LANE_COLORS.length];
 }
@@ -30,12 +33,17 @@ function laneX(lane: number): number {
 interface GraphColumnProps {
   row: CommitGraphRow;
   globalMaxLane: number;
+  /** Draw a grey vertical pass-through line at lane 0 (uncommitted→HEAD connection) */
+  uncommittedPassThrough?: boolean;
+  /** Draw a grey curve from lane 0 to this commit's dot (HEAD commit row) */
+  uncommittedCurveToHead?: boolean;
 }
 
-export function GraphColumn({ row, globalMaxLane }: GraphColumnProps) {
+export function GraphColumn({ row, globalMaxLane, uncommittedPassThrough, uncommittedCurveToHead }: GraphColumnProps) {
   const width = (globalMaxLane + 1) * LANE_WIDTH + 4;
   const midY = ROW_HEIGHT / 2;
   const commitX = laneX(row.lane);
+  const lane0X = laneX(0);
 
   return (
     <svg
@@ -44,6 +52,39 @@ export function GraphColumn({ row, globalMaxLane }: GraphColumnProps) {
       className="block shrink-0"
       style={{ minWidth: width }}
     >
+      {/* Grey uncommitted pass-through line at lane 0 */}
+      {uncommittedPassThrough && (
+        <line
+          x1={lane0X}
+          y1={0}
+          x2={lane0X}
+          y2={ROW_HEIGHT}
+          stroke={UNCOMMITTED_COLOR}
+          strokeWidth={2}
+        />
+      )}
+
+      {/* Grey curve from lane 0 to the HEAD commit's lane */}
+      {uncommittedCurveToHead && row.lane !== 0 && (
+        <path
+          d={`M ${lane0X} 0 Q ${lane0X} ${midY}, ${commitX} ${midY}`}
+          fill="none"
+          stroke={UNCOMMITTED_COLOR}
+          strokeWidth={2}
+        />
+      )}
+      {/* If HEAD is at lane 0, just draw a straight grey line above the dot */}
+      {uncommittedCurveToHead && row.lane === 0 && (
+        <line
+          x1={commitX}
+          y1={0}
+          x2={commitX}
+          y2={midY - DOT_RADIUS}
+          stroke={UNCOMMITTED_COLOR}
+          strokeWidth={2}
+        />
+      )}
+
       {/* Pass-through and merge/fork segments */}
       {row.segments.map((seg, i) => {
         const x1 = laneX(seg.fromLane);
@@ -65,7 +106,33 @@ export function GraphColumn({ row, globalMaxLane }: GraphColumnProps) {
           );
         }
 
-        // Curved merge/fork line
+        // Merge line: another lane converges INTO this commit's dot
+        if (seg.toLane === row.lane) {
+          return (
+            <path
+              key={i}
+              d={`M ${x1} 0 Q ${x1} ${midY}, ${commitX} ${midY}`}
+              fill="none"
+              stroke={color}
+              strokeWidth={2}
+            />
+          );
+        }
+
+        // Fork line: this commit's dot diverges OUT to another lane
+        if (seg.fromLane === row.lane) {
+          return (
+            <path
+              key={i}
+              d={`M ${commitX} ${midY} Q ${x2} ${midY}, ${x2} ${ROW_HEIGHT}`}
+              fill="none"
+              stroke={color}
+              strokeWidth={2}
+            />
+          );
+        }
+
+        // Fallback: curve between two non-commit lanes (rare)
         return (
           <path
             key={i}
@@ -111,3 +178,5 @@ export function GraphColumn({ row, globalMaxLane }: GraphColumnProps) {
     </svg>
   );
 }
+
+export { laneColor, LANE_COLORS };
