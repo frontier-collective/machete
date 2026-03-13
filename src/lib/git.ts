@@ -303,6 +303,33 @@ export function getUnstagedFiles(): string[] {
   return [...new Set(combined.split("\n").filter(Boolean))];
 }
 
+export interface FileDiffStat {
+  file: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+}
+
+export function getStagedDiffStats(): FileDiffStat[] {
+  return parseDiffNumstat(exec("git diff --cached --numstat"));
+}
+
+export function getUnstagedDiffStats(): FileDiffStat[] {
+  return parseDiffNumstat(exec("git diff --numstat"));
+}
+
+function parseDiffNumstat(output: string): FileDiffStat[] {
+  if (!output) return [];
+  return output.split("\n").filter(Boolean).map((line) => {
+    const [added, removed, ...fileParts] = line.split("\t");
+    const file = fileParts.join("\t");
+    if (added === "-") {
+      return { file, added: 0, removed: 0, binary: true };
+    }
+    return { file, added: parseInt(added, 10), removed: parseInt(removed, 10), binary: false };
+  });
+}
+
 export function stageAll(): void {
   exec("git add -A");
 }

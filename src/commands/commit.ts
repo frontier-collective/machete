@@ -4,18 +4,35 @@ import {
   getCurrentBranch,
   getStagedFiles,
   getUnstagedFiles,
+  getStagedDiffStats,
+  getUnstagedDiffStats,
   stageAll,
+  stageFiles,
   getStagedDiff,
   getRecentCommitMessages,
   commitWithMessage,
   pushWithTags,
 } from "../lib/git.js";
+import type { FileDiffStat } from "../lib/git.js";
 import { loadConfig } from "../lib/config.js";
 import { success, error, warning, info, dim, bold } from "../cli/format.js";
-import { confirm } from "../cli/prompt.js";
+import { confirm, selectOne } from "../cli/prompt.js";
 
+const RED = "\x1b[31m";
+const GREEN = "\x1b[32m";
 const CYAN = "\x1b[36m";
+const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
+
+function formatDiffStat(stats: Map<string, FileDiffStat>, file: string): string {
+  const stat = stats.get(file);
+  if (!stat) return "";
+  if (stat.binary) return ` ${DIM}(binary)${RESET}`;
+  const parts: string[] = [];
+  if (stat.added > 0) parts.push(`${GREEN}+${stat.added}${RESET}`);
+  if (stat.removed > 0) parts.push(`${RED}-${stat.removed}${RESET}`);
+  return parts.length > 0 ? ` ${parts.join(" ")}` : "";
+}
 
 function cleanCommitMessage(raw: string): string {
   return raw
@@ -92,22 +109,67 @@ export async function runCommit(args: ParsedArgs): Promise<void> {
     return;
   }
 
-  if (unstaged.length > 0) {
+  // Gather diff stats for display
+  const stagedStats = new Map(getStagedDiffStats().map((s) => [s.file, s]));
+  const unstagedStats = new Map(getUnstagedDiffStats().map((s) => [s.file, s]));
+
+  // Show staged files
+  if (staged.length > 0) {
     console.log();
-    console.log(`${bold("Unstaged changes:")}`);
-    for (const file of unstaged) {
-      console.log(`  ${CYAN}${file}${RESET}`);
+    console.log(`${bold("Staged:")}`);
+    for (const file of staged) {
+      console.log(`  ${GREEN}${file}${RESET}${formatDiffStat(stagedStats, file)}`);
+    }
+  }
+
+  // Show unstaged files and prompt for staging
+  if (unstaged.length > 0) {
+    const whetstoneFiles = unstaged.filter((f) => f.startsWith(".whetstone/"));
+    const regularFiles = unstaged.filter((f) => !f.startsWith(".whetstone/"));
+
+    console.log();
+    console.log(`${bold("Unstaged:")}`);
+    for (const file of regularFiles) {
+      const stat = formatDiffStat(unstagedStats, file);
+      const newTag = !stat ? ` ${DIM}(new)${RESET}` : "";
+      console.log(`  ${CYAN}${file}${RESET}${stat}${newTag}`);
+    }
+    if (whetstoneFiles.length > 0) {
+      console.log(`  ${DIM}── whetstone ──${RESET}`);
+      for (const file of whetstoneFiles) {
+        console.log(`  ${DIM}${file}${formatDiffStat(unstagedStats, file)}${RESET}`);
+      }
     }
     console.log();
 
-    const prompt = staged.length === 0
-      ? "No files are staged. Stage all changes?"
-      : "There are also unstaged changes. Stage them too?";
+    if (whetstoneFiles.length > 0) {
+      const action = await selectOne(
+        staged.length === 0
+          ? "No files are staged. What would you like to stage?"
+          : "There are also unstaged changes. What would you like to stage?",
+        [
+          "Stage all (exclude .whetstone)",
+          "Stage all",
+          "Don't stage",
+        ]
+      );
+      if (action === "Stage all") {
+        stageAll();
+        staged = getStagedFiles();
+      } else if (action === "Stage all (exclude .whetstone)") {
+        stageFiles(regularFiles);
+        staged = getStagedFiles();
+      }
+    } else {
+      const prompt = staged.length === 0
+        ? "No files are staged. Stage all changes?"
+        : "There are also unstaged changes. Stage them too?";
 
-    const shouldStage = await confirm(prompt);
-    if (shouldStage) {
-      stageAll();
-      staged = getStagedFiles();
+      const shouldStage = await confirm(prompt);
+      if (shouldStage) {
+        stageAll();
+        staged = getStagedFiles();
+      }
     }
   }
 
