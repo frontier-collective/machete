@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 
+// Clean exit on signals — prevents "unsettled top-level await" warnings.
+// SIGINT: Ctrl+C when no readline is active (readline intercepts its own via createRl).
+// SIGTERM: pkill, kill, Docker stop, process managers, etc.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    console.log();
+    process.exit(0);
+  });
+}
+
 import { parseArgs } from "./cli/args.js";
 import { printHelp } from "./cli/help.js";
 import { getVersion } from "./lib/version.js";
@@ -46,6 +56,11 @@ switch (command) {
   case "prune": {
     const { runPrune } = await import("./commands/prune.js");
     await runPrune(args);
+    break;
+  }
+  case "pr": {
+    const { runPr } = await import("./commands/pr.js");
+    await runPr(args);
     break;
   }
   default:

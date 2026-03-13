@@ -11,7 +11,6 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 - [ ] Add `machete release hotfix` — hotfix flow branching from master instead of develop
 - [ ] Add `machete status` — dashboard-style overview: current branch, ahead/behind, stale branches, dirty files, last tag
 - [ ] Add `machete diff` — AI-powered diff summary that explains what changed in plain English
-- [ ] `MACH-0008` Add `machete pr` — create a GitHub PR with AI-generated title and description from the branch's commits
 - [ ] Add `machete amend` — quick amend last commit with optional AI-regenerated message
 - [ ] Add `machete undo` — safely undo the last commit (soft reset), with guard rails
 - [ ] Add `machete stash` — named stashes with `machete stash save <name>` / `machete stash pop <name>`
@@ -58,3 +57,4 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 - [x] `MACH-0004` (2026-03-13) Make `machete prune` safe — squash-merge detection, 3-phase commit reachability
 - [x] `MACH-0005` (2026-03-13) Whetstone-aware commit — separate `.whetstone/` files in staging prompt, diff stats display
 - [x] `MACH-0006` (2026-03-13) Interactive version selection — prompt for patch/minor/major with version previews
+- [x] `MACH-0008` (2026-03-13) Add `machete pr` — AI-powered pull request creation

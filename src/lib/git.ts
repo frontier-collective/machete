@@ -497,3 +497,97 @@ export function getRemotes(): string[] {
     return [];
   }
 }
+
+// ─── PR helpers ─────────────────────────────────────────────────────
+
+export function getCommitsSinceBase(base: string): string[] {
+  try {
+    const output = exec(`git log ${base}..HEAD --format=%H`);
+    if (!output) return [];
+    return output.split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function getCommitMessagesSinceBase(base: string): string {
+  try {
+    return exec(`git log ${base}..HEAD --format="%h %s"`);
+  } catch {
+    return "";
+  }
+}
+
+export function getDiffStatSinceBase(base: string): string {
+  try {
+    return exec(`git diff --stat ${base}..HEAD`);
+  } catch {
+    return "";
+  }
+}
+
+export function getDiffFilesSinceBase(base: string): FileDiffStat[] {
+  try {
+    return parseDiffNumstat(exec(`git diff --numstat ${base}..HEAD`));
+  } catch {
+    return [];
+  }
+}
+
+export function getRemoteDefaultBranch(remote: string): string {
+  try {
+    const output = execSync(`gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name'`, {
+      encoding: "utf-8",
+      stdio: "pipe",
+    }).trim();
+    return output || "";
+  } catch {
+    return "";
+  }
+}
+
+export function branchExistsOnRemote(branch: string, remote: string): boolean {
+  try {
+    const output = execQuiet(`git ls-remote --heads ${remote} ${branch}`);
+    return output.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function isBranchUpToDateWithRemote(branch: string, remote: string): boolean {
+  try {
+    const localHash = execQuiet(`git rev-parse ${branch}`);
+    const remoteHash = execQuiet(`git rev-parse ${remote}/${branch}`);
+    return localHash === remoteHash;
+  } catch {
+    return false;
+  }
+}
+
+export function getCommitCountAheadOfRemote(branch: string, remote: string): number {
+  try {
+    const output = execQuiet(`git rev-list ${remote}/${branch}..${branch} --count`);
+    return parseInt(output, 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function pushBranch(branch: string, remote: string): void {
+  execSync(`git push -u ${remote} ${branch}`, { stdio: "inherit" });
+}
+
+export function createPr(
+  title: string,
+  body: string,
+  base: string,
+  draft: boolean
+): string {
+  const draftFlag = draft ? " --draft" : "";
+  const output = execSync(
+    `gh pr create --base "${base}" --title "${title}" --body-file -${draftFlag}`,
+    { input: body, encoding: "utf-8", stdio: ["pipe", "pipe", "inherit"] }
+  ).trim();
+  return output;
+}

@@ -22,6 +22,7 @@ ${BOLD}COMMANDS${RESET}
   ${GREEN}commit${RESET}    Generate an AI commit message and commit staged changes ${DIM}(--dry-run)${RESET}
   ${GREEN}config${RESET}    Read or write configuration values ${DIM}(-g, --list, --add, --remove)${RESET}
   ${GREEN}prune${RESET}     Safely delete fully-merged local branches ${DIM}(--dry-run, -i, -n)${RESET}
+  ${GREEN}pr${RESET}        Create a GitHub PR with AI-generated title and description ${DIM}(--draft, --dry-run, --noai)${RESET}
   ${GREEN}release${RESET}   Git-flow release with changelog, GH release, and npm publish ${DIM}(--dry-run, --noai, --no-publish)${RESET}
 
 ${BOLD}OPTIONS${RESET}
@@ -44,6 +45,14 @@ ${BOLD}RELEASE USAGE${RESET}
   ${GREEN}--dry-run${RESET}        Preview changelog and version bump without making changes
   ${GREEN}--noai${RESET}           Use raw git log instead of Claude for changelog
   ${GREEN}--no-publish${RESET}     Stop after push ${DIM}(skip GH release + npm publish)${RESET}
+
+${BOLD}PR OPTIONS${RESET}
+  ${GREEN}--draft${RESET}              Create as draft PR
+  ${GREEN}--dry-run${RESET}            Preview without creating
+  ${GREEN}--base${RESET} ${YELLOW}<branch>${RESET}       Override base branch ${DIM}(default: auto-detect from remote)${RESET}
+  ${GREEN}--noai${RESET}               Skip AI generation, prompt for title/body manually
+  ${GREEN}--title${RESET} ${YELLOW}<text>${RESET}        Override AI-generated title
+  ${GREEN}--body${RESET} ${YELLOW}<text>${RESET}         Override AI-generated body
 
 ${BOLD}PRUNE OPTIONS${RESET}
   ${GREEN}--dry-run${RESET}            Show what would happen without deleting
