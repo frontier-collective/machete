@@ -462,10 +462,12 @@ pub async fn get_tags(repo_path: String) -> Result<Value, String> {
 
 #[tauri::command]
 pub async fn get_commit_log(repo_path: String, count: Option<u32>) -> Result<Value, String> {
-    let n = count.unwrap_or(100);
     // %H=hash %h=short %P=parents %s=subject %an=author %aI=date %D=refs
     let format = "--format=%H%n%h%n%P%n%s%n%an%n%aI%n%D%n---";
-    let output = run_git(&repo_path, &["log", &format!("-{}", n), format, "--all"])?;
+    let output = match count {
+        Some(n) => run_git(&repo_path, &["log", &format!("-{}", n), format, "--all"])?,
+        None => run_git(&repo_path, &["log", format, "--all"])?,
+    };
 
     let mut commits: Vec<Value> = Vec::new();
     let mut lines: Vec<&str> = Vec::new();

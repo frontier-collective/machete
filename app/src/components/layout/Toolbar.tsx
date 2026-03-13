@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Sun,
   Moon,
@@ -20,6 +21,7 @@ import {
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import logoSvg from "@/assets/machete-logo.svg";
 
 export type ToolbarAction = "pr" | "prune" | "settings" | null;
 
@@ -38,6 +40,23 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
 
   const toggleAction = (action: ToolbarAction) => {
     onAction(activeAction === action ? null : action);
+  };
+
+  /** Start native window drag on mousedown; double-click to toggle maximize */
+  const handleDragMouseDown = async (e: React.MouseEvent) => {
+    // Only left button, and only if the target is the drag layer itself
+    if (e.button !== 0) return;
+    const appWindow = getCurrentWindow();
+    if (e.detail === 2) {
+      // Double-click → toggle maximize
+      if (await appWindow.isMaximized()) {
+        await appWindow.unmaximize();
+      } else {
+        await appWindow.maximize();
+      }
+    } else {
+      await appWindow.startDragging();
+    }
   };
 
   async function handlePush() {
@@ -81,13 +100,27 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <header className="flex h-10 items-center justify-between border-b px-3 shrink-0">
-        {/* Left: branch status */}
-        <div className="flex items-center gap-3 text-sm">
-          {status && (
-            <>
+      <header
+        className="relative flex h-10 items-center border-b shrink-0 select-none bg-background"
+      >
+        {/* Full-width drag layer behind all content — uses JS startDragging API */}
+        <div
+          className="absolute inset-0"
+          onMouseDown={handleDragMouseDown}
+        />
+
+        {/* Left: logo + branding */}
+        <div className="relative flex items-center gap-1.5 text-sm pl-[84px] shrink-0 pointer-events-none">
+          <img src={logoSvg} alt="Machete" className="h-5 w-5 rounded-sm" />
+          <span className="text-sm font-bold tracking-tight">Machete</span>
+        </div>
+
+        {/* Center: branch status + push/pull/fetch (absolutely centered) */}
+        {status && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="relative flex items-center gap-3 text-sm pointer-events-auto">
               <span
-                className={`inline-block h-2 w-2 rounded-full ${
+                className={`inline-block h-2 w-2 rounded-full shrink-0 ${
                   status.isClean ? "bg-green-500" : "bg-amber-500"
                 }`}
               />
@@ -169,12 +202,12 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                   <TooltipContent>Fetch</TooltipContent>
                 </Tooltip>
               </div>
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
 
-        {/* Right: action buttons */}
-        <div className="flex items-center gap-1">
+        {/* Right: action buttons (pushed to far right) */}
+        <div className="relative flex items-center gap-1 pr-3 ml-auto">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

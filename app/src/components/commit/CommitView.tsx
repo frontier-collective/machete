@@ -390,12 +390,19 @@ function StagingView({ repoPath }: { repoPath: string }) {
     fetchContext();
   }, [fetchContext, status]);
 
+  const contextLines = layout.contextLines;
+
   const fetchDiff = useCallback(
     async (file: string, staged: boolean) => {
       if (!repoPath) return;
       setDiffLoading(true);
       try {
-        const result = await invoke<string>("get_file_diff", { repoPath, file, staged });
+        const result = await invoke<string>("get_file_diff", {
+          repoPath,
+          file,
+          staged,
+          contextLines,
+        });
         setDiff(result);
       } catch (e) {
         setDiff(`Error loading diff: ${e}`);
@@ -403,7 +410,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
         setDiffLoading(false);
       }
     },
-    [repoPath]
+    [repoPath, contextLines]
   );
 
   // Re-fetch diff when file selection changes OR when status changes (file content edited externally)
@@ -605,8 +612,9 @@ function StagingView({ repoPath }: { repoPath: string }) {
         <div className="flex flex-1 min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
           {selectedFile ? (
             <>
-              <div className="border-b px-3 py-1.5 shrink-0">
-                <span className="text-xs font-medium">{selectedFile}</span>
+              <div className="flex items-center justify-between border-b px-3 py-1.5 shrink-0">
+                <span className="text-xs font-medium truncate">{selectedFile}</span>
+                <ContextLinesDropdown value={contextLines} onChange={(v) => updateLayout({ contextLines: v })} />
               </div>
               <ScrollArea className="flex-1">
                 {diffLoading ? (

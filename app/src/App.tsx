@@ -148,90 +148,93 @@ function App() {
     <RepoContext.Provider
       value={{ repoPath, setRepoPath, status, statusLoading, statusError, refreshStatus, selectedBranch, setSelectedBranch, selectedCommitHash, setSelectedCommitHash, layout, updateLayout }}
     >
-      <div className="flex h-screen w-screen overflow-hidden">
-        {/* Sidebar: branches, remotes, tags */}
-        <RepoSidebar width={layout.sidebarWidth} onError={setAlertMessage} />
+      <div className="flex h-screen w-screen flex-col overflow-hidden">
+        {/* Toolbar — full width, acts as custom titlebar */}
+        <Toolbar activeAction={activeAction} onAction={setActiveAction} />
 
-        {/* Sidebar drag handle */}
-        <div
-          className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
-          onMouseDown={sidebarDragHandle}
-        />
+        {/* Alert banner */}
+        {alertMessage && (
+          <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-3 py-1.5 text-xs text-destructive shrink-0">
+            <span className="flex-1 truncate">{alertMessage}</span>
+            <button
+              onClick={() => setAlertMessage(null)}
+              className="shrink-0 rounded p-0.5 hover:bg-destructive/20"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
 
-        {/* Main area */}
-        <div className="flex flex-1 flex-col overflow-hidden relative">
-          {/* Toolbar */}
-          <Toolbar activeAction={activeAction} onAction={setActiveAction} />
+        {/* Body: sidebar + main content */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Sidebar: branches, remotes, tags */}
+          <RepoSidebar width={layout.sidebarWidth} onError={setAlertMessage} />
 
-          {/* Alert banner */}
-          {alertMessage && (
-            <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-3 py-1.5 text-xs text-destructive shrink-0">
-              <span className="flex-1 truncate">{alertMessage}</span>
-              <button
-                onClick={() => setAlertMessage(null)}
-                className="shrink-0 rounded p-0.5 hover:bg-destructive/20"
+          {/* Sidebar drag handle */}
+          <div
+            className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
+            onMouseDown={sidebarDragHandle}
+          />
+
+          {/* Main area */}
+          <div className="flex flex-1 flex-col overflow-hidden relative">
+            {/* Content: log + staging */}
+            <div ref={mainAreaRef} className="flex flex-1 flex-col overflow-hidden">
+              {/* Commit log (top) */}
+              <div
+                className="overflow-hidden border-b bg-card"
+                style={{ height: `${layout.logPanelPct}%` }}
               >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          )}
+                <ErrorBoundary>
+                  <CommitLog />
+                </ErrorBoundary>
+              </div>
 
-          {/* Content: log + staging */}
-          <div ref={mainAreaRef} className="flex flex-1 flex-col overflow-hidden">
-            {/* Commit log (top) */}
-            <div
-              className="overflow-hidden border-b bg-card"
-              style={{ height: `${layout.logPanelPct}%` }}
+              {/* Draggable divider between log and staging */}
+              <div
+                className="h-1 shrink-0 cursor-row-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
+                onMouseDown={logDragHandle}
+              />
+
+              {/* Staging + diff + commit (bottom) */}
+              <div className="flex-1 min-h-0 overflow-hidden px-2">
+                <ErrorBoundary>
+                  <CommitView />
+                </ErrorBoundary>
+              </div>
+            </div>
+
+            {/* Slide-over panels for toolbar actions */}
+            <SlideOver
+              title="Create Pull Request"
+              open={activeAction === "pr"}
+              onClose={() => setActiveAction(null)}
             >
               <ErrorBoundary>
-                <CommitLog />
+                <PrView />
               </ErrorBoundary>
-            </div>
+            </SlideOver>
 
-            {/* Draggable divider between log and staging */}
-            <div
-              className="h-1 shrink-0 cursor-row-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
-              onMouseDown={logDragHandle}
-            />
-
-            {/* Staging + diff + commit (bottom) */}
-            <div className="flex-1 min-h-0 overflow-hidden px-2">
+            <SlideOver
+              title="Branch Management"
+              open={activeAction === "prune"}
+              onClose={() => setActiveAction(null)}
+            >
               <ErrorBoundary>
-                <CommitView />
+                <BranchesView />
               </ErrorBoundary>
-            </div>
+            </SlideOver>
+
+            <SlideOver
+              title="Settings"
+              open={activeAction === "settings"}
+              onClose={() => setActiveAction(null)}
+            >
+              <ErrorBoundary>
+                <SettingsView />
+              </ErrorBoundary>
+            </SlideOver>
           </div>
-
-          {/* Slide-over panels for toolbar actions */}
-          <SlideOver
-            title="Create Pull Request"
-            open={activeAction === "pr"}
-            onClose={() => setActiveAction(null)}
-          >
-            <ErrorBoundary>
-              <PrView />
-            </ErrorBoundary>
-          </SlideOver>
-
-          <SlideOver
-            title="Branch Management"
-            open={activeAction === "prune"}
-            onClose={() => setActiveAction(null)}
-          >
-            <ErrorBoundary>
-              <BranchesView />
-            </ErrorBoundary>
-          </SlideOver>
-
-          <SlideOver
-            title="Settings"
-            open={activeAction === "settings"}
-            onClose={() => setActiveAction(null)}
-          >
-            <ErrorBoundary>
-              <SettingsView />
-            </ErrorBoundary>
-          </SlideOver>
         </div>
       </div>
     </RepoContext.Provider>

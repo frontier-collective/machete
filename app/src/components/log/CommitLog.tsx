@@ -1,18 +1,25 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Loader2 } from "lucide-react";
 import { useRepo } from "@/hooks/useRepo";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import type { CommitLogEntry } from "@/types";
 import { computeGraphLayout, type CommitGraphRow } from "./graphLayout";
 import { GraphColumn, LANE_WIDTH, ROW_HEIGHT, UNCOMMITTED_COLOR, laneColor } from "./GraphColumn";
+
+const GRID_COLS = "4.5rem 1fr 7rem 5.5rem";
 
 export function CommitLog() {
   const { repoPath, status, selectedBranch, selectedCommitHash, setSelectedCommitHash } = useRepo();
   const [commits, setCommits] = useState<CommitLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const hasLoaded = useRef(false);
+  const lastCommitsJson = useRef<string>("");
+
+  // Build a stable "fingerprint" of status that only changes when we need to refetch the log
+  // (branch switch or commit count changes — NOT staged/unstaged file changes)
+  const logTrigger = status ? `${status.branch}:${status.stagedCount + status.unstagedCount}:${status.isClean}:${status.aheadCount}` : "";
 
   const fetchLog = useCallback(async () => {
     if (!repoPath) return;
@@ -20,9 +27,13 @@ export function CommitLog() {
     try {
       const result = await invoke<CommitLogEntry[]>("get_commit_log", {
         repoPath,
-        count: 200,
       });
-      setCommits(result);
+      // Only update state if commits actually changed (prevents flickering)
+      const json = JSON.stringify(result.map((c) => c.hash));
+      if (json !== lastCommitsJson.current) {
+        lastCommitsJson.current = json;
+        setCommits(result);
+      }
     } catch {
       // Non-critical — leave empty
     } finally {
@@ -31,10 +42,10 @@ export function CommitLog() {
     }
   }, [repoPath]);
 
-  // Refresh log when status changes (new commit, branch switch, staged count change, etc.)
+  // Refresh log when branch/clean-state changes (NOT on every staged file change)
   useEffect(() => {
     fetchLog();
-  }, [fetchLog, status]);
+  }, [fetchLog, logTrigger]);
 
   // Compute graph layout from commits
   const baseGraphRows = useMemo(() => computeGraphLayout(commits), [commits]);
@@ -50,30 +61,40 @@ export function CommitLog() {
     return 0; // fallback to first
   }, [commits]);
 
-  // When there are uncommitted changes, shift the entire graph right by one lane
-  // to reserve lane 0 for the grey uncommitted→HEAD line
+  // Post-process: ensure HEAD's branch is always in lane 0 (leftmost).
+  // The uncommitted dot sits directly above HEAD at lane 0 — no lane shifting needed.
   const graphRows: CommitGraphRow[] = useMemo(() => {
-    if (!hasUncommitted) return baseGraphRows;
+    if (baseGraphRows.length === 0) return baseGraphRows;
+
+    // Find which lane HEAD occupies
+    const headLane = baseGraphRows[headCommitIndex]?.lane ?? 0;
+
+    if (headLane === 0) return baseGraphRows;
+
+    // Remap lanes: swap headLane and lane 0
+    const remap = (lane: number): number => {
+      if (lane === headLane) return 0;
+      if (lane === 0) return headLane;
+      return lane;
+    };
+
     return baseGraphRows.map((row) => ({
       ...row,
-      lane: row.lane + 1,
+      lane: remap(row.lane),
       segments: row.segments.map((s) => ({
         ...s,
-        fromLane: s.fromLane + 1,
-        toLane: s.toLane + 1,
+        fromLane: remap(s.fromLane),
+        toLane: remap(s.toLane),
       })),
-      maxLane: row.maxLane + 1,
+      // maxLane stays the same since we're just swapping
     }));
-  }, [baseGraphRows, hasUncommitted]);
+  }, [baseGraphRows, headCommitIndex]);
 
   const globalMaxLane = useMemo(
     () => graphRows.reduce((max, r) => Math.max(max, r.maxLane), 0),
     [graphRows]
   );
   const graphColWidth = (globalMaxLane + 1) * LANE_WIDTH + 8;
-
-  // Ref map for scrolling to highlighted rows
-  const rowRefs = useRef<Map<string, HTMLTableRowElement>>(new Map());
 
   // Find which commit hash to highlight based on selected branch/tag
   const highlightHash = useMemo(() => {
@@ -100,16 +121,25 @@ export function CommitLog() {
     return null;
   }, [selectedBranch, commits]);
 
+  // Virtualized scroll container
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualizer({
+    count: commits.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  });
+
   // When sidebar selection changes, sync selectedCommitHash and scroll into view
   useEffect(() => {
     if (!highlightHash) return;
-    // Update selected commit to match, clearing any previous row selection
     setSelectedCommitHash(highlightHash);
-    const row = rowRefs.current.get(highlightHash);
-    if (row) {
-      row.scrollIntoView({ block: "center", behavior: "smooth" });
+    const index = commits.findIndex((c) => c.hash === highlightHash);
+    if (index >= 0) {
+      virtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
     }
-  }, [highlightHash, setSelectedCommitHash]);
+  }, [highlightHash, setSelectedCommitHash, commits, virtualizer]);
 
   if (!repoPath) return null;
 
@@ -129,117 +159,161 @@ export function CommitLog() {
     );
   }
 
-  return (
-    <ScrollArea className="h-full">
-      <table className="w-full text-xs border-collapse">
-        <thead className="sticky top-0 bg-card z-10">
-          <tr className="border-b text-muted-foreground" style={{ height: ROW_HEIGHT }}>
-            <th className="text-left font-medium px-1 py-0" style={{ width: graphColWidth }} />
-            <th className="text-left font-medium px-2 py-0 w-[4.5rem]">Hash</th>
-            <th className="text-left font-medium px-2 py-0">Message</th>
-            <th className="text-left font-medium px-2 py-0 w-[7rem]">Author</th>
-            <th className="text-left font-medium px-2 py-0 w-[5.5rem]">Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {/* Uncommitted changes row — always at the top */}
-          {hasUncommitted && graphRows.length > 0 && (
-            <tr
-              className={`cursor-pointer ${
-                selectedCommitHash === null
-                  ? "bg-amber-500/10 hover:bg-amber-500/15"
-                  : "bg-amber-500/5 hover:bg-amber-500/10"
-              }`}
-              style={{ height: ROW_HEIGHT }}
-              onClick={() => setSelectedCommitHash(null)}
-            >
-              <td className="p-0 align-middle border-0" style={{ width: graphColWidth }}>
-                <UncommittedGraphCell globalMaxLane={globalMaxLane} />
-              </td>
-              <td className="px-2 py-0 font-mono text-muted-foreground align-middle border-b border-border/40">
-                •
-              </td>
-              <td className="px-2 py-0 align-middle border-b border-border/40">
-                <span className="text-amber-600 dark:text-amber-400 font-medium">
-                  Uncommitted changes
-                </span>
-              </td>
-              <td className="px-2 py-0 text-muted-foreground align-middle border-b border-border/40">
-                •
-              </td>
-              <td className="px-2 py-0 text-muted-foreground align-middle border-b border-border/40">
-                •
-              </td>
-            </tr>
-          )}
+  const gridTemplate = `${graphColWidth}px ${GRID_COLS}`;
 
-          {commits.map((commit, i) => {
-            const isHighlighted = commit.hash === highlightHash;
-            const isSelected = commit.hash === selectedCommitHash;
-            const isHeadCommit = i === headCommitIndex;
+  return (
+    <div className="flex h-full flex-col text-xs">
+      {/* Sticky header */}
+      <div
+        className="grid shrink-0 border-b text-muted-foreground font-medium bg-card z-10"
+        style={{ gridTemplateColumns: gridTemplate, height: ROW_HEIGHT }}
+      >
+        <div className="px-1 flex items-center" />
+        <div className="px-2 flex items-center">Hash</div>
+        <div className="px-2 flex items-center">Message</div>
+        <div className="px-2 flex items-center">Author</div>
+        <div className="px-2 flex items-center">Date</div>
+      </div>
+
+      {/* Uncommitted changes row — always at top, outside virtualizer */}
+      {hasUncommitted && graphRows.length > 0 && (
+        <div
+          className={`grid shrink-0 cursor-pointer ${
+            selectedCommitHash === null
+              ? "bg-amber-500/10 hover:bg-amber-500/15"
+              : "bg-amber-500/5 hover:bg-amber-500/10"
+          }`}
+          style={{ gridTemplateColumns: gridTemplate, height: ROW_HEIGHT }}
+          onClick={() => setSelectedCommitHash(null)}
+        >
+          <div className="flex items-center">
+            <UncommittedGraphCell globalMaxLane={globalMaxLane} />
+          </div>
+          <div className="px-2 font-mono text-muted-foreground flex items-center border-b border-border/40">•</div>
+          <div className="px-2 flex items-center border-b border-border/40">
+            <span className="text-amber-600 dark:text-amber-400 font-medium">Uncommitted changes</span>
+          </div>
+          <div className="px-2 text-muted-foreground flex items-center border-b border-border/40">•</div>
+          <div className="px-2 text-muted-foreground flex items-center border-b border-border/40">•</div>
+        </div>
+      )}
+
+      {/* Virtualized commit list */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto">
+        <div
+          style={{
+            height: virtualizer.getTotalSize(),
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const i = virtualRow.index;
+            const commit = commits[i];
             const graphRow = graphRows[i];
 
-            // Uncommitted line logic: grey line at lane 0 from top to HEAD
-            // Rows before HEAD: pass-through at lane 0
-            // HEAD row: curve from lane 0 to the commit's lane
-            const showUncommittedPassThrough = !!(hasUncommitted && i < headCommitIndex);
-            const showUncommittedCurve = !!(hasUncommitted && isHeadCommit);
-
             return (
-              <tr
+              <CommitRow
                 key={commit.hash}
-                ref={(el) => {
-                  if (el) rowRefs.current.set(commit.hash, el);
-                  else rowRefs.current.delete(commit.hash);
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: ROW_HEIGHT,
+                  transform: `translateY(${virtualRow.start}px)`,
                 }}
-                className={`cursor-pointer ${
-                  isSelected
-                    ? "bg-primary/15 hover:bg-primary/20"
-                    : isHighlighted
-                      ? "bg-primary/10 hover:bg-primary/15"
-                      : "hover:bg-accent/50"
-                }`}
-                style={{ height: ROW_HEIGHT }}
+                commit={commit}
+                graphRow={graphRow}
+                globalMaxLane={globalMaxLane}
+                gridTemplate={gridTemplate}
+                isSelected={commit.hash === selectedCommitHash}
+                isHighlighted={commit.hash === highlightHash}
+                showUncommittedPassThrough={!!(hasUncommitted && i < headCommitIndex)}
+                showUncommittedCurve={!!(hasUncommitted && i === headCommitIndex)}
                 onClick={() => setSelectedCommitHash(commit.hash)}
-              >
-                {/* Graph column — no border so lines are seamless */}
-                <td className="p-0 align-middle border-0" style={{ width: graphColWidth }}>
-                  <GraphColumn
-                    row={graphRow}
-                    globalMaxLane={globalMaxLane}
-                    uncommittedPassThrough={showUncommittedPassThrough}
-                    uncommittedCurveToHead={showUncommittedCurve}
-                  />
-                </td>
-                <td className="px-2 py-0 font-mono text-muted-foreground align-middle border-b border-border/40">
-                  {commit.shortHash}
-                </td>
-                <td className="px-2 py-0 align-middle border-b border-border/40">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {commit.refs.length > 0 && (
-                      <span className="flex gap-1 shrink-0">
-                        {commit.refs.map((ref_) => (
-                          <RefBadge key={ref_} refName={ref_} laneColor={laneColor(graphRow.color)} />
-                        ))}
-                      </span>
-                    )}
-                    <span className="truncate">{commit.message}</span>
-                  </div>
-                </td>
-                <td className="px-2 py-0 text-muted-foreground truncate align-middle border-b border-border/40">
-                  {commit.author}
-                </td>
-                <td className="px-2 py-0 text-muted-foreground whitespace-nowrap align-middle border-b border-border/40">
-                  {formatDate(commit.date)}
-                </td>
-              </tr>
+              />
             );
           })}
-        </tbody>
-      </table>
-    </ScrollArea>
+        </div>
+      </div>
+    </div>
   );
 }
+
+// ─── Memoized commit row ─────────────────────────────────────────────
+
+interface CommitRowProps {
+  style: React.CSSProperties;
+  commit: CommitLogEntry;
+  graphRow: CommitGraphRow;
+  globalMaxLane: number;
+  gridTemplate: string;
+  isSelected: boolean;
+  isHighlighted: boolean;
+  showUncommittedPassThrough: boolean;
+  showUncommittedCurve: boolean;
+  onClick: () => void;
+}
+
+const CommitRow = memo(function CommitRow({
+  style,
+  commit,
+  graphRow,
+  globalMaxLane,
+  gridTemplate,
+  isSelected,
+  isHighlighted,
+  showUncommittedPassThrough,
+  showUncommittedCurve,
+  onClick,
+}: CommitRowProps) {
+  return (
+    <div
+      className={`grid cursor-pointer ${
+        isSelected
+          ? "bg-primary/15 hover:bg-primary/20"
+          : isHighlighted
+            ? "bg-primary/10 hover:bg-primary/15"
+            : "hover:bg-accent/50"
+      }`}
+      style={{ ...style, gridTemplateColumns: gridTemplate }}
+      onClick={onClick}
+    >
+      <div className="flex items-center">
+        <GraphColumn
+          row={graphRow}
+          globalMaxLane={globalMaxLane}
+          uncommittedPassThrough={showUncommittedPassThrough}
+          uncommittedCurveToHead={showUncommittedCurve}
+        />
+      </div>
+      <div className="px-2 font-mono text-muted-foreground flex items-center border-b border-border/40 truncate">
+        {commit.shortHash}
+      </div>
+      <div className="px-2 flex items-center border-b border-border/40 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          {commit.refs.length > 0 && (
+            <span className="flex gap-1 shrink-0">
+              {commit.refs.map((ref_) => (
+                <RefBadge key={ref_} refName={ref_} laneColor={laneColor(graphRow.color)} />
+              ))}
+            </span>
+          )}
+          <span className="truncate">{commit.message}</span>
+        </div>
+      </div>
+      <div className="px-2 text-muted-foreground flex items-center border-b border-border/40 truncate">
+        {commit.author}
+      </div>
+      <div className="px-2 text-muted-foreground flex items-center border-b border-border/40 whitespace-nowrap">
+        {formatDate(commit.date)}
+      </div>
+    </div>
+  );
+});
+
+// ─── Sub-components ─────────────────────────────────────────────────
 
 /**
  * Special graph cell for the uncommitted changes row.
