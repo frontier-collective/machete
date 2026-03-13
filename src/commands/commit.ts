@@ -134,14 +134,22 @@ export async function runCommit(args: ParsedArgs): Promise<void> {
       return;
     }
 
+    // Merge diff stats with the full file list so untracked files (which have
+    // no diff) still appear in the GUI.
+    const unstagedStatsMap = new Map(unstagedStats.map((s) => [s.file, s]));
+    const mergedUnstaged: FileStatusJson[] = unstaged.map((file) => {
+      const stat = unstagedStatsMap.get(file);
+      return stat
+        ? { file: stat.file, added: stat.added, removed: stat.removed, binary: stat.binary }
+        : { file, added: 0, removed: 0, binary: false };
+    });
+
     const result: CommitContextJson = {
       branch: getCurrentBranch(),
       staged: stagedStats.map((s): FileStatusJson => ({
         file: s.file, added: s.added, removed: s.removed, binary: s.binary,
       })),
-      unstaged: unstagedStats.map((s): FileStatusJson => ({
-        file: s.file, added: s.added, removed: s.removed, binary: s.binary,
-      })),
+      unstaged: mergedUnstaged,
       recentCommits: getRecentCommitMessages(5).split("\n").filter(Boolean),
     };
     console.log(JSON.stringify(result));
