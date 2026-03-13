@@ -1,7 +1,7 @@
 ---
 id: MACH-0004
 title: Safe prune — verify work exists elsewhere before deleting
-status: in-progress
+status: done
 priority: high
 created: 2026-03-13
 ---
@@ -43,8 +43,8 @@ Every local branch is displayed in the summary:
 - [x] Add format helpers: `keptBranchList`, `deletableBranchList`, `unsafeBranchList`
 - [x] Rewrite prune command with safety classification flow
 - [x] Update help text with new flag descriptions
-- [ ] Add unit tests for git safety functions
-- [ ] Add integration tests for prune command
+- [x] Add unit tests for git safety functions
+- [x] Add integration tests for prune command
 
 ## Notes
 
