@@ -28,6 +28,9 @@ Git toolset CLI — `@frontier-collective/machete`
 - `machete release` — Full git-flow release: version bump, changelog, branch/tag management, GH release, npm publish
   - `--dry-run`, `--noai`, `--no-publish`
   - No args → interactive version selector with preview (patch/minor/major)
+- `machete pr` — AI-powered pull request creation via Claude + `gh pr create`
+  - `--draft`, `--dry-run`, `--base <branch>`, `--noai`, `--title <text>`, `--body <text>`
+  - Auto-detects base branch: `--base` flag → `prBaseBranch` config → remote default → prompt
 - `machete prune` — Safe branch cleanup: squash-merge detection, 3-phase commit reachability
   - `--dry-run`, `--remote <name>`, `-i`/`--interactive`, `-n`/`--no-interaction`
   - No `--force` — prune is always safe by design
@@ -36,7 +39,7 @@ Git toolset CLI — `@frontier-collective/machete`
 
 Merge order: defaults → `~/.machete/macheterc` → `~/.machete/credentials` → `<repo>/.macheterc` → `<repo>/.machete.env`
 
-- Config keys: `protectedBranches`, `defaultRemote`
+- Config keys: `protectedBranches`, `defaultRemote`, `prBaseBranch`
 - Credential keys (auto-routed to secrets files): `anthropicApiKey`, `githubToken`, `bitbucketToken`
 - Default protected branches: `main`, `master`, `develop`
 

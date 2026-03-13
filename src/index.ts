@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 
+// Clean exit on signals — prevents "unsettled top-level await" warnings.
+// SIGINT: Ctrl+C when no readline is active (readline intercepts its own via createRl).
+// SIGTERM: pkill, kill, Docker stop, process managers, etc.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    console.log();
+    process.exit(0);
+  });
+}
+
 import { parseArgs } from "./cli/args.js";
 import { printHelp } from "./cli/help.js";
 import { getVersion } from "./lib/version.js";
@@ -48,8 +58,18 @@ switch (command) {
     await runPrune(args);
     break;
   }
+  case "pr": {
+    const { runPr } = await import("./commands/pr.js");
+    await runPr(args);
+    break;
+  }
   default:
     console.error(`Unknown command: ${command}`);
     console.error(`Run "machete help" for usage information.`);
     process.exit(1);
 }
+
+// CLI is done — exit explicitly. Libraries like the Anthropic SDK keep HTTP
+// connection pools alive in the background, which prevents Node from exiting
+// on its own and triggers "unsettled top-level await" warnings.
+process.exit(0);

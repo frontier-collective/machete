@@ -1,9 +1,10 @@
 ---
 id: MACH-0008
 title: machete pr — AI-powered pull request creation
-status: ready
+status: done
 priority: high
 created: 2026-03-13
+completed: 2026-03-13
 ---
 
 # MACH-0008: machete pr — AI-powered pull request creation

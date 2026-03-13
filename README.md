@@ -106,12 +106,49 @@ machete commit --dry-run
 3. Sends the staged diff to Claude to generate a Conventional Commits message
 4. Displays the message and commits
 
+### `machete pr`
+
+Create a GitHub pull request with an AI-generated title and description. Gathers branch context — commits, diff stats, branch name — and sends it to Claude to produce a structured PR. Requires the GitHub CLI (`gh`) and an Anthropic API key.
+
+```bash
+# Generate PR with AI title and description
+machete pr
+
+# Create as draft PR
+machete pr --draft
+
+# Preview without creating
+machete pr --dry-run
+
+# Override the base branch
+machete pr --base main
+
+# Skip AI, enter title/body manually
+machete pr --noai
+
+# Override just the title or body
+machete pr --title "Fix login redirect"
+machete pr --body "Quick fix for the redirect loop"
+```
+
+**What it does:**
+
+1. Detects the base branch (`--base` flag → `prBaseBranch` config → remote default → prompt)
+2. Checks if the branch is pushed to the remote; prompts to push if not
+3. Gathers commits, diff stats, and changed files since the base branch
+4. Sends context to Claude to generate a title and structured body (Summary, Changes, Test plan)
+5. Previews the result and offers to edit in `$EDITOR` before creating
+6. Creates the PR via `gh pr create`
+
 ### `machete release`
 
 Full git-flow release pipeline: version bump, AI-generated changelog, branch management, GitHub release, and npm publish.
 
 ```bash
-# Run a minor release
+# Interactive — choose patch/minor/major with version previews
+machete release
+
+# Explicit bump type
 machete release minor
 
 # Preview without making changes
@@ -128,27 +165,29 @@ machete release major --no-publish
 
 1. Validates you're on `develop` with a clean tree
 2. Runs build and tests
-3. Bumps version (`patch`, `minor`, or `major`)
+3. Bumps version (`patch`, `minor`, or `major` — interactive selector if no arg given)
 4. Generates changelog with Claude (or raw git log with `--noai`)
 5. Creates a `release/X.Y.Z` branch, commits, merges to `master`, tags, merges back to `develop`
 6. Prompts to push, create a GitHub release (requires `gh` CLI), and publish to npm
 
 ### `machete prune`
 
-Delete local branches that have no remote equivalent. Useful for cleaning up after merged pull requests.
+Over time, local branches pile up — feature branches that were merged via PR, hotfixes that were squash-merged, experiments that went nowhere. Git doesn't clean these up automatically, and manually checking which branches are safe to delete is tedious and error-prone. Delete the wrong one and you lose work.
+
+Machete prune solves this by classifying every local branch before touching anything. It uses a 3-phase safety check — hash-identity, patch-id comparison via `git cherry`, and combined-diff patch-id matching — to detect not just regular merges but also squash merges (where GitHub combines multiple commits into one). Only branches whose work is verified to exist on remote **and** on another local branch are ever deleted. There is no `--force` flag. Prune is always safe.
 
 ```bash
-# Preview what would be deleted
+# Preview what would happen — nothing is deleted
 machete prune --dry-run
 
-# Delete stale branches (with confirmation prompt)
+# Delete safe branches (with confirmation prompt)
 machete prune
 
-# Skip confirmation
-machete prune --force
+# Choose which safe branches to delete interactively
+machete prune -i
 
-# Choose which branches to delete
-machete prune --interactive
+# Skip confirmation prompt (for scripting)
+machete prune -n
 
 # Compare against a different remote
 machete prune --remote upstream
@@ -157,10 +196,13 @@ machete prune --remote upstream
 **What it does:**
 
 1. Fetches the latest refs from the remote (with `--prune`)
-2. Compares local branches against remote branches
-3. Identifies local branches with no remote equivalent
-4. Skips protected branches (`main`, `master`, `develop` by default)
-5. Prompts for confirmation before deleting
+2. Categorizes every local branch: current, on remote, protected, or stale
+3. For each stale branch, runs 3-phase safety classification:
+   - **Phase 1:** Hash-identity — are all commits reachable from a remote ref and another local branch?
+   - **Phase 2:** Patch-equivalence (remote) — does `git cherry` or combined-diff patch-id match a remote protected branch? Catches squash merges.
+   - **Phase 3:** Patch-equivalence (local) — same check against local branches not also being pruned
+4. Displays a full summary showing every branch and why it's safe, unsafe, or protected
+5. Only deletes branches classified as safe — unsafe branches are shown but never touched
 
 ## Configuration
 
@@ -169,7 +211,8 @@ Run `machete init` to create a `.macheterc` in your repo root, or create one man
 ```json
 {
   "protectedBranches": ["main", "master", "develop"],
-  "defaultRemote": "origin"
+  "defaultRemote": "origin",
+  "prBaseBranch": "develop"
 }
 ```
 
