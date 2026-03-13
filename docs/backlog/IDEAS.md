@@ -1,11 +1,9 @@
 # Ideas
 
-Raw ideas for Machete improvements. Graduate to a story file in `stories/` when ready to pursue. When an idea is done (graduated or dropped), check the box and move it to the **Done** section at the bottom.
+Raw ideas for Machete improvements. Graduate to a story file in `stories/` when ready to pursue. When an idea is done, **remove it from its section** and add it to the **Done** section at the bottom. Done items must not remain in the active sections.
 
 ## Commands
 
-- [x] `MACH-0004` Make `machete prune` safe — verify all commits exist on remote and another local branch before deleting
-- [x] `MACH-0006` Interactive version selection — `machete release` with no args prompts user to pick patch/minor/major with version previews
 - [ ] `MACH-0001` Add `machete branch` — create branches with consistent naming conventions (feature/, bugfix/, hotfix/) with optional ticket ID prefixes
 - [ ] Add `machete log` — pretty-printed git log with graph, author coloring, and relative dates
 - [ ] Add `machete sync` — fetch + rebase current branch onto its upstream, with stash/unstash around dirty trees
@@ -13,7 +11,7 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 - [ ] Add `machete release hotfix` — hotfix flow branching from master instead of develop
 - [ ] Add `machete status` — dashboard-style overview: current branch, ahead/behind, stale branches, dirty files, last tag
 - [ ] Add `machete diff` — AI-powered diff summary that explains what changed in plain English
-- [ ] Add `machete pr` — create a GitHub PR with AI-generated title and description from the branch's commits
+- [ ] `MACH-0008` Add `machete pr` — create a GitHub PR with AI-generated title and description from the branch's commits
 - [ ] Add `machete amend` — quick amend last commit with optional AI-regenerated message
 - [ ] Add `machete undo` — safely undo the last commit (soft reset), with guard rails
 - [ ] Add `machete stash` — named stashes with `machete stash save <name>` / `machete stash pop <name>`
@@ -27,6 +25,7 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 - [ ] Support local LLMs via Ollama as an alternative to the Anthropic API
 - [ ] Add PR review summary — AI-powered summary of a PR's changes for reviewers
 - [ ] Add commit message templates — user-defined prompt overrides for different projects or teams
+- [ ] Add PR body templates — configurable markdown templates in `.machete/` (global or local) for PR descriptions
 - [ ] Token usage tracking — show estimated API cost per commit/release in verbose mode
 
 ## Configuration
@@ -36,6 +35,10 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 - [ ] Add config validation on load — warn about unknown keys
 - [ ] Add `machete config --edit` to open config file in $EDITOR
 - [ ] Support `.macheterc` in YAML or TOML format as alternatives to JSON
+
+## GUI
+
+- [ ] `MACH-0007` Machete GUI — cross-platform graphical layer over machete CLI (Tauri 2.0 + Svelte/React)
 
 ## Infrastructure
 
