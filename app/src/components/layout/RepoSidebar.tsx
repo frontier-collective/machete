@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   GitBranch,
@@ -7,39 +7,65 @@ import {
   ChevronRight,
   ChevronDown,
   FolderOpen,
+  Folder,
   Loader2,
+  Shield,
+  Lock,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useRepo } from "@/hooks/useRepo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import type { BranchInfo, RemoteInfo } from "@/types";
+import type { BranchInfo, RemoteInfo, PruneClassification, ConfigEntry } from "@/types";
 
-export function RepoSidebar() {
-  const { repoPath, setRepoPath, status } = useRepo();
+export function RepoSidebar({
+  width,
+  onError,
+}: {
+  width?: number;
+  onError?: (msg: string | null) => void;
+}) {
+  const { repoPath, setRepoPath, status, refreshStatus, setSelectedBranch, selectedBranch, layout, updateLayout } = useRepo();
 
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [protectedBranches, setProtectedBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [branchesOpen, setBranchesOpen] = useState(true);
-  const [remotesOpen, setRemotesOpen] = useState(false);
-  const [tagsOpen, setTagsOpen] = useState(false);
-  const [expandedRemotes, setExpandedRemotes] = useState<Set<string>>(new Set());
+  // Section open/close state from persisted layout
+  const branchesOpen = layout.branchesOpen;
+  const remotesOpen = layout.remotesOpen;
+  const tagsOpen = layout.tagsOpen;
+  const expandedRemotes = useMemo(() => new Set(layout.expandedRemotes), [layout.expandedRemotes]);
+  const expandedFolders = useMemo(() => new Set(layout.expandedFolders), [layout.expandedFolders]);
+
+  // Checkout state
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+
+  // Branch safety state
+  const [safety, setSafety] = useState<PruneClassification | null>(null);
+  const [safetyLoading, setSafetyLoading] = useState(false);
 
   const fetchSidebarData = useCallback(async () => {
     if (!repoPath) return;
     setLoading(true);
     try {
-      const [b, r, t] = await Promise.all([
+      const [b, r, t, cfg] = await Promise.all([
         invoke<BranchInfo[]>("get_branches", { repoPath }),
         invoke<RemoteInfo[]>("get_remotes", { repoPath }),
         invoke<string[]>("get_tags", { repoPath }),
+        invoke<ConfigEntry[]>("get_config_list", { repoPath }),
       ]);
       setBranches(b);
       setRemotes(r);
       setTags(t);
+      const pb = cfg.find((e) => e.key === "protectedBranches");
+      setProtectedBranches(
+        Array.isArray(pb?.value) ? (pb.value as string[]) : ["main", "master", "develop"]
+      );
     } catch {
       // Silently fail — sidebar is non-critical
     } finally {
@@ -47,10 +73,10 @@ export function RepoSidebar() {
     }
   }, [repoPath]);
 
-  // Refresh sidebar data when repo changes or status updates (branch might change)
+  // Refresh sidebar data when repo changes or status updates (commit, branch switch, tag, etc.)
   useEffect(() => {
     fetchSidebarData();
-  }, [fetchSidebarData, status?.branch]);
+  }, [fetchSidebarData, status]);
 
   const handleOpenRepo = async () => {
     const selected = await open({ directory: true, multiple: false });
@@ -59,21 +85,68 @@ export function RepoSidebar() {
     }
   };
 
-  const toggleRemote = (name: string) => {
-    setExpandedRemotes((prev) => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
+  const handleCheckout = async (branch: string) => {
+    if (!repoPath || checkoutLoading) return;
+    setCheckoutLoading(branch);
+    onError?.(null);
+    try {
+      await invoke("checkout_branch", { repoPath, branch });
+      refreshStatus();
+    } catch (e) {
+      onError?.(String(e));
+    } finally {
+      setCheckoutLoading(null);
+    }
   };
+
+  const handleAnalyzeSafety = async () => {
+    if (!repoPath || safetyLoading) return;
+    setSafetyLoading(true);
+    try {
+      const result = await invoke<PruneClassification>("get_branch_classification", { repoPath });
+      setSafety(result);
+    } catch {
+      // Non-critical
+    } finally {
+      setSafetyLoading(false);
+    }
+  };
+
+  const getBranchSafetyDot = (branchName: string): string | null => {
+    if (!safety) return null;
+    if (safety.protected.includes(branchName)) return "bg-blue-500";
+    if (safety.safe.some((b) => b.branch === branchName)) return "bg-green-500";
+    if (safety.unsafe.some((b) => b.branch === branchName)) return "bg-amber-500";
+    return null;
+  };
+
+  const isBranchProtected = (branchName: string): boolean => {
+    if (safety) return safety.protected.includes(branchName);
+    return protectedBranches.includes(branchName);
+  };
+
+  const toggleRemote = (name: string) => {
+    const next = new Set(expandedRemotes);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    updateLayout({ expandedRemotes: [...next] });
+  };
+
+  const toggleFolder = (path: string) => {
+    const next = new Set(expandedFolders);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    updateLayout({ expandedFolders: [...next] });
+  };
+
+  const branchTree = useMemo(() => buildBranchTree(branches), [branches]);
 
   const repoName = repoPath
     ? repoPath.replace(/\/+$/, "").split("/").pop() || "Repo"
     : null;
 
   return (
-    <aside className="flex h-full w-[220px] flex-col border-r bg-muted/30">
+    <aside className="flex h-full flex-col bg-muted/30 shrink-0" style={{ width: width ?? 220 }}>
       {/* Repo selector */}
       <div className="flex items-center gap-2 border-b px-3 py-2 shrink-0">
         <Button
@@ -102,44 +175,62 @@ export function RepoSidebar() {
             <SectionHeader
               icon={GitBranch}
               label="Branches"
-              count={branches.length}
               open={branchesOpen}
-              onToggle={() => setBranchesOpen(!branchesOpen)}
+              onToggle={() => updateLayout({ branchesOpen: !branchesOpen })}
+              action={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 w-5 p-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleAnalyzeSafety();
+                  }}
+                  title="Analyze branch safety"
+                >
+                  {safetyLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Shield className="h-3 w-3" />
+                  )}
+                </Button>
+              }
             />
             {branchesOpen && (
-              <div className="ml-2">
-                {branches.map((b) => (
-                  <div
-                    key={b.name}
-                    className={`flex items-center gap-2 rounded-sm px-3 py-0.5 text-xs ${
-                      b.current
-                        ? "font-semibold text-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                    }`}
-                  >
-                    {b.current && (
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
-                    )}
-                    <span className="truncate">{b.name}</span>
-                  </div>
-                ))}
+              <div>
+                <BranchTreeView
+                  nodes={branchTree}
+                  depth={0}
+                  pathPrefix=""
+                  checkoutLoading={checkoutLoading}
+                  getBranchSafetyDot={getBranchSafetyDot}
+                  isBranchProtected={isBranchProtected}
+                  isDirty={!status?.isClean}
+                  currentBranch={status?.branch ?? null}
+                  onSelect={(name) => setSelectedBranch(name)}
+                  onCheckout={handleCheckout}
+                  expandedFolders={expandedFolders}
+                  toggleFolder={toggleFolder}
+                />
               </div>
             )}
 
             {/* Remotes */}
+            <div className="mt-4" />
             <SectionHeader
               icon={Globe}
               label="Remotes"
               count={remotes.length}
               open={remotesOpen}
-              onToggle={() => setRemotesOpen(!remotesOpen)}
+              onToggle={() => updateLayout({ remotesOpen: !remotesOpen })}
             />
             {remotesOpen && (
-              <div className="ml-2">
+              <div>
                 {remotes.map((r) => (
                   <div key={r.name}>
                     <button
-                      className="flex w-full items-center gap-1 rounded-sm px-3 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
+                      className="flex w-full items-center gap-1 rounded-sm py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
+                      style={{ paddingLeft: 16, paddingRight: 8 }}
                       onClick={() => toggleRemote(r.name)}
                     >
                       {expandedRemotes.has(r.name) ? (
@@ -151,14 +242,20 @@ export function RepoSidebar() {
                       <span className="ml-auto text-muted-foreground/60">{r.branches.length}</span>
                     </button>
                     {expandedRemotes.has(r.name) && (
-                      <div className="ml-5">
+                      <div>
                         {r.branches.map((branch) => (
-                          <div
+                          <button
                             key={branch}
-                            className="truncate rounded-sm px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
+                            className={`flex w-full truncate rounded-sm py-0.5 text-xs cursor-pointer ${
+                              selectedBranch === branch
+                                ? "bg-accent text-foreground"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                            }`}
+                            style={{ paddingLeft: 34, paddingRight: 8 }}
+                            onClick={() => setSelectedBranch(branch)}
                           >
                             {branch.replace(`${r.name}/`, "")}
-                          </div>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -168,25 +265,32 @@ export function RepoSidebar() {
             )}
 
             {/* Tags */}
+            <div className="mt-4" />
             <SectionHeader
               icon={Tag}
               label="Tags"
               count={tags.length}
               open={tagsOpen}
-              onToggle={() => setTagsOpen(!tagsOpen)}
+              onToggle={() => updateLayout({ tagsOpen: !tagsOpen })}
             />
             {tagsOpen && (
-              <div className="ml-2">
+              <div>
                 {tags.length === 0 ? (
-                  <div className="px-3 py-1 text-xs text-muted-foreground/60">No tags</div>
+                  <div className="py-1 text-xs text-muted-foreground/60" style={{ paddingLeft: 34 }}>No tags</div>
                 ) : (
                   tags.map((tag) => (
-                    <div
+                    <button
                       key={tag}
-                      className="truncate rounded-sm px-3 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
+                      className={`flex w-full truncate rounded-sm py-0.5 text-xs cursor-pointer ${
+                        selectedBranch === `tag:${tag}`
+                          ? "bg-accent text-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                      }`}
+                      style={{ paddingLeft: 34, paddingRight: 8 }}
+                      onClick={() => setSelectedBranch(`tag:${tag}`)}
                     >
                       {tag}
-                    </div>
+                    </button>
                   ))
                 )}
               </div>
@@ -198,33 +302,210 @@ export function RepoSidebar() {
   );
 }
 
-// Section header with collapsible toggle
+// --- Branch tree (folder grouping by "/") ---
+
+interface BranchTreeNode {
+  /** Folder or leaf name (last path segment) */
+  name: string;
+  /** Full branch name (only set for leaf nodes) */
+  fullName?: string;
+  /** BranchInfo for leaf nodes */
+  info?: BranchInfo;
+  /** Child nodes (folders or leaves) */
+  children: BranchTreeNode[];
+}
+
+function buildBranchTree(branches: BranchInfo[]): BranchTreeNode[] {
+  const root: BranchTreeNode = { name: "", children: [] };
+
+  for (const b of branches) {
+    const parts = b.name.split("/");
+    let node = root;
+
+    for (let i = 0; i < parts.length; i++) {
+      const isLeaf = i === parts.length - 1;
+      if (isLeaf) {
+        node.children.push({ name: parts[i], fullName: b.name, info: b, children: [] });
+      } else {
+        let folder = node.children.find((c) => !c.fullName && c.name === parts[i]);
+        if (!folder) {
+          folder = { name: parts[i], children: [] };
+          node.children.push(folder);
+        }
+        node = folder;
+      }
+    }
+  }
+
+  return root.children;
+}
+
+function BranchTreeView({
+  nodes,
+  depth,
+  pathPrefix,
+  checkoutLoading,
+  getBranchSafetyDot,
+  isBranchProtected,
+  isDirty,
+  currentBranch,
+  onSelect,
+  onCheckout,
+  expandedFolders,
+  toggleFolder,
+}: {
+  nodes: BranchTreeNode[];
+  depth: number;
+  pathPrefix: string;
+  checkoutLoading: string | null;
+  getBranchSafetyDot: (name: string) => string | null;
+  isBranchProtected: (name: string) => boolean;
+  isDirty: boolean;
+  currentBranch: string | null;
+  onSelect: (name: string) => void;
+  onCheckout: (name: string) => void;
+  expandedFolders: Set<string>;
+  toggleFolder: (path: string) => void;
+}) {
+  // Alphabetical sort — folders and leaves mixed together
+  const sorted = [...nodes].sort((a, b) => a.name.localeCompare(b.name));
+
+  // Base left padding: depth 0 = 20px (enough indent under BRANCHES header)
+  const basePad = 20;
+
+  return (
+    <>
+      {sorted.map((node) => {
+        if (node.fullName && node.info) {
+          // Leaf: render branch
+          const b = node.info;
+          const isChecking = checkoutLoading === b.name;
+          const safetyDot = getBranchSafetyDot(b.name);
+          const isProtected = isBranchProtected(b.name);
+          // Red dot if this is the current branch and there are uncommitted changes
+          const showDirtyDot = b.current && isDirty;
+
+          return (
+            <button
+              key={b.name}
+              className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-xs text-left ${
+                b.current
+                  ? "font-semibold text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+              } ${isChecking ? "opacity-50" : ""}`}
+              style={{ paddingLeft: `${basePad + depth * 14}px`, paddingRight: 8 }}
+              onClick={() => onSelect(b.name)}
+              onDoubleClick={() => !b.current && onCheckout(b.name)}
+            >
+              {showDirtyDot ? (
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+              ) : safetyDot ? (
+                <span className={`inline-block h-1.5 w-1.5 rounded-full ${safetyDot} shrink-0`} />
+              ) : (
+                <span className="inline-block h-1.5 w-1.5 shrink-0" />
+              )}
+              <span className="truncate">{node.name}</span>
+              {/* Right side: loading spinner, padlock, or ahead/behind */}
+              <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                {isChecking && <Loader2 className="h-3 w-3 animate-spin" />}
+                {isProtected && <Lock className="h-3 w-3 text-muted-foreground/50" />}
+                {(b.ahead > 0 || b.behind > 0) && (
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70 font-mono">
+                    {b.behind > 0 && (
+                      <span className="flex items-center gap-0.5">
+                        {b.behind}
+                        <ArrowDown className="h-2.5 w-2.5" />
+                      </span>
+                    )}
+                    {b.ahead > 0 && (
+                      <span className="flex items-center gap-0.5">
+                        {b.ahead}
+                        <ArrowUp className="h-2.5 w-2.5" />
+                      </span>
+                    )}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        }
+
+        // Folder node
+        const folderPath = pathPrefix + node.name + "/";
+        const isOpen = expandedFolders.has(folderPath);
+
+        return (
+          <div key={`folder-${node.name}`}>
+            <button
+              className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              style={{ paddingLeft: `${basePad + depth * 14 - 4}px`, paddingRight: 8 }}
+              onClick={() => toggleFolder(folderPath)}
+            >
+              {isOpen ? (
+                <ChevronDown className="h-3 w-3 shrink-0" />
+              ) : (
+                <ChevronRight className="h-3 w-3 shrink-0" />
+              )}
+              <Folder className="h-3 w-3 shrink-0" />
+              <span className="font-medium">{node.name}</span>
+            </button>
+            {isOpen && (
+              <BranchTreeView
+                nodes={node.children}
+                depth={depth + 1}
+                pathPrefix={folderPath}
+                checkoutLoading={checkoutLoading}
+                getBranchSafetyDot={getBranchSafetyDot}
+                isBranchProtected={isBranchProtected}
+                isDirty={isDirty}
+                currentBranch={currentBranch}
+                onSelect={onSelect}
+                onCheckout={onCheckout}
+                expandedFolders={expandedFolders}
+                toggleFolder={toggleFolder}
+              />
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+// Section header with collapsible toggle and optional action button
 function SectionHeader({
   icon: Icon,
   label,
   count,
   open,
   onToggle,
+  action,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
-  count: number;
+  count?: number;
   open: boolean;
   onToggle: () => void;
+  action?: React.ReactNode;
 }) {
   return (
-    <button
-      className="flex w-full items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-accent/50"
-      onClick={onToggle}
-    >
-      {open ? (
-        <ChevronDown className="h-3 w-3 shrink-0" />
-      ) : (
-        <ChevronRight className="h-3 w-3 shrink-0" />
-      )}
-      <Icon className="h-3.5 w-3.5 shrink-0" />
-      <span>{label}</span>
-      <span className="ml-auto font-normal text-muted-foreground/60">{count}</span>
-    </button>
+    <div className="flex items-center bg-muted/60">
+      <button
+        className="flex flex-1 items-center gap-2 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground hover:bg-accent/50"
+        onClick={onToggle}
+      >
+        {open ? (
+          <ChevronDown className="h-3 w-3 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0" />
+        )}
+        <Icon className="h-3.5 w-3.5 shrink-0" />
+        <span>{label}</span>
+        {count !== undefined && (
+          <span className="ml-auto font-normal text-muted-foreground/60">{count}</span>
+        )}
+      </button>
+      {action && <div className="pr-2">{action}</div>}
+    </div>
   );
 }

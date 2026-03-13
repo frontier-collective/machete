@@ -1,10 +1,16 @@
 mod commands;
+mod watcher;
+
+use std::sync::Mutex;
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .manage(Mutex::new(watcher::WatcherState::default()))
         .invoke_handler(tauri::generate_handler![
             commands::get_repo_status,
             commands::get_commit_context,
@@ -27,7 +33,17 @@ pub fn run() {
             commands::get_remotes,
             commands::get_tags,
             commands::get_commit_log,
+            commands::checkout_branch,
+            commands::get_commit_detail,
+            watcher::watch_repo,
+            watcher::unwatch_repo,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Persist window state on quit / SIGTERM / SIGINT
+                let _ = app.save_window_state(StateFlags::all());
+            }
+        });
 }

@@ -241,7 +241,7 @@ export function PrView() {
       {/* AI Generation */}
       <div className="flex items-center gap-3">
         <Button
-          variant="outline"
+          variant="brand"
           onClick={generateWithAI}
           disabled={generating}
         >

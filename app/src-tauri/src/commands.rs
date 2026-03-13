@@ -142,18 +142,52 @@ pub async fn stage_files(repo_path: String, files: Vec<String>) -> Result<String
 #[tauri::command]
 pub async fn unstage_files(repo_path: String, files: Vec<String>) -> Result<String, String> {
     let file_refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
-    let mut args = vec!["reset", "HEAD"];
-    args.extend(file_refs);
-    run_git(&repo_path, &args)?;
+    // Check if HEAD exists (it won't in a brand-new repo with no commits)
+    let has_head = run_git(&repo_path, &["rev-parse", "HEAD"]).is_ok();
+    if has_head {
+        let mut args = vec!["reset", "HEAD", "--"];
+        args.extend(file_refs);
+        run_git(&repo_path, &args)?;
+    } else {
+        // No commits yet — use rm --cached to unstage
+        let mut args = vec!["rm", "--cached", "--"];
+        args.extend(file_refs);
+        run_git(&repo_path, &args)?;
+    }
     Ok("Unstaged".to_string())
 }
 
 #[tauri::command]
-pub async fn get_file_diff(repo_path: String, file: String, staged: bool) -> Result<String, String> {
-    if staged {
-        run_git(&repo_path, &["diff", "--cached", "--", &file])
+pub async fn get_file_diff(
+    repo_path: String,
+    file: String,
+    staged: bool,
+    commit_hash: Option<String>,
+    context_lines: Option<u32>,
+) -> Result<String, String> {
+    let ctx = format!("-U{}", context_lines.unwrap_or(3));
+
+    if let Some(hash) = commit_hash {
+        // Check if this commit has a parent (root commits don't)
+        let has_parent = run_git(&repo_path, &["rev-parse", &format!("{}^", hash)]).is_ok();
+        let parent = if has_parent {
+            format!("{}^", hash)
+        } else {
+            // Empty tree hash — diff entire commit against nothing
+            "4b825dc642cb6eb9a060e54bf899d15f3f9382e1".to_string()
+        };
+        if file.contains(" → ") {
+            let parts: Vec<&str> = file.split(" → ").collect();
+            let old_file = parts[0].trim();
+            let new_file = parts[1].trim();
+            run_git(&repo_path, &["diff", "-M", &ctx, &parent, &hash, "--", old_file, new_file])
+        } else {
+            run_git(&repo_path, &["diff", "-M", &ctx, &parent, &hash, "--", &file])
+        }
+    } else if staged {
+        run_git(&repo_path, &["diff", "--cached", &ctx, "--", &file])
     } else {
-        run_git(&repo_path, &["diff", "--", &file])
+        run_git(&repo_path, &["diff", &ctx, "--", &file])
     }
 }
 
@@ -311,16 +345,44 @@ pub async fn set_config_value(
 
 #[tauri::command]
 pub async fn get_branches(repo_path: String) -> Result<Value, String> {
-    // Local branches with current marker
+    // Local branches with current marker and ahead/behind tracking info
     let current = run_git(&repo_path, &["branch", "--show-current"])?;
-    let output = run_git(&repo_path, &["branch", "--format=%(refname:short)"])?;
+    let output = run_git(
+        &repo_path,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)|%(upstream:track)",
+            "refs/heads/",
+        ],
+    )?;
     let branches: Vec<Value> = output
         .lines()
         .filter(|l| !l.is_empty())
-        .map(|name| {
+        .map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '|').collect();
+            let name = parts[0].trim();
+            let track = parts.get(1).unwrap_or(&"").trim();
+
+            // Parse "[ahead N, behind M]" or "[ahead N]" or "[behind M]"
+            let mut ahead: u64 = 0;
+            let mut behind: u64 = 0;
+            if track.starts_with('[') && track.ends_with(']') {
+                let inner = &track[1..track.len() - 1];
+                for part in inner.split(',') {
+                    let part = part.trim();
+                    if part.starts_with("ahead ") {
+                        ahead = part[6..].parse().unwrap_or(0);
+                    } else if part.starts_with("behind ") {
+                        behind = part[7..].parse().unwrap_or(0);
+                    }
+                }
+            }
+
             serde_json::json!({
-                "name": name.trim(),
-                "current": name.trim() == current,
+                "name": name,
+                "current": name == current,
+                "ahead": ahead,
+                "behind": behind,
             })
         })
         .collect();
@@ -372,7 +434,8 @@ pub async fn get_tags(repo_path: String) -> Result<Value, String> {
 #[tauri::command]
 pub async fn get_commit_log(repo_path: String, count: Option<u32>) -> Result<Value, String> {
     let n = count.unwrap_or(100);
-    let format = "--format=%H%n%h%n%s%n%an%n%aI%n%D%n---";
+    // %H=hash %h=short %P=parents %s=subject %an=author %aI=date %D=refs
+    let format = "--format=%H%n%h%n%P%n%s%n%an%n%aI%n%D%n---";
     let output = run_git(&repo_path, &["log", &format!("-{}", n), format, "--all"])?;
 
     let mut commits: Vec<Value> = Vec::new();
@@ -380,8 +443,14 @@ pub async fn get_commit_log(repo_path: String, count: Option<u32>) -> Result<Val
 
     for line in output.lines() {
         if line == "---" {
-            if lines.len() >= 6 {
-                let refs_str = lines[5];
+            if lines.len() >= 7 {
+                let parents_str = lines[2];
+                let parents: Vec<String> = if parents_str.is_empty() {
+                    vec![]
+                } else {
+                    parents_str.split(' ').map(|s| s.to_string()).collect()
+                };
+                let refs_str = lines[6];
                 let refs: Vec<String> = if refs_str.is_empty() {
                     vec![]
                 } else {
@@ -390,9 +459,10 @@ pub async fn get_commit_log(repo_path: String, count: Option<u32>) -> Result<Val
                 commits.push(serde_json::json!({
                     "hash": lines[0],
                     "shortHash": lines[1],
-                    "message": lines[2],
-                    "author": lines[3],
-                    "date": lines[4],
+                    "parents": parents,
+                    "message": lines[3],
+                    "author": lines[4],
+                    "date": lines[5],
                     "refs": refs,
                 }));
             }
@@ -403,4 +473,129 @@ pub async fn get_commit_log(repo_path: String, count: Option<u32>) -> Result<Val
     }
 
     Ok(serde_json::json!(commits))
+}
+
+// ─── Branch checkout ─────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn checkout_branch(repo_path: String, branch: String) -> Result<String, String> {
+    run_git(&repo_path, &["checkout", &branch])?;
+    Ok(format!("Switched to {}", branch))
+}
+
+// ─── Commit detail (for viewing a historical commit) ────────────────
+
+#[tauri::command]
+pub async fn get_commit_detail(repo_path: String, hash: String) -> Result<Value, String> {
+    // Get commit message
+    let message = run_git(&repo_path, &["log", "-1", "--format=%B", &hash])?;
+
+    // Check if this is a merge commit (multiple parents)
+    let parents = run_git(&repo_path, &["rev-parse", &format!("{}^@", hash)])?;
+    let parent_count = parents.lines().filter(|l| !l.is_empty()).count();
+
+    // Get file stats and status: -M enables rename detection, -C enables copy detection
+    let (numstat, name_status) = if parent_count > 1 {
+        let first_parent = parents.lines().next().unwrap_or("").trim();
+        (
+            run_git(&repo_path, &["diff", "-M", "-C", "--numstat", first_parent, &hash])?,
+            run_git(&repo_path, &["diff", "-M", "-C", "--name-status", first_parent, &hash])?,
+        )
+    } else if parent_count == 0 {
+        // Root commit (no parents) — need --root flag for diff-tree
+        (
+            run_git(&repo_path, &["diff-tree", "--root", "--no-commit-id", "-r", "-M", "-C", "--numstat", &hash])?,
+            run_git(&repo_path, &["diff-tree", "--root", "--no-commit-id", "-r", "-M", "-C", "--name-status", &hash])?,
+        )
+    } else {
+        (
+            run_git(&repo_path, &["diff-tree", "--no-commit-id", "-r", "-M", "-C", "--numstat", &hash])?,
+            run_git(&repo_path, &["diff-tree", "--no-commit-id", "-r", "-M", "-C", "--name-status", &hash])?,
+        )
+    };
+
+    // Parse name-status lines into (status, display_file, old_file) tuples
+    // Both --numstat and --name-status output files in the same order, so we join by index
+    let status_entries: Vec<(String, String)> = name_status
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|line| {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 2 {
+                let status_str = parts[0].to_string();
+                let status_char = status_str.chars().next().unwrap_or('M');
+                if (status_char == 'R' || status_char == 'C') && parts.len() >= 3 {
+                    // Rename/copy: show "old → new"
+                    let old = parts[1];
+                    let new = parts[2];
+                    (status_char.to_string(), format!("{} → {}", old, new))
+                } else {
+                    (status_char.to_string(), parts[1].to_string())
+                }
+            } else {
+                ("M".to_string(), line.trim().to_string())
+            }
+        })
+        .collect();
+
+    let numstat_lines: Vec<&str> = numstat.lines().filter(|l| !l.is_empty()).collect();
+
+    let files: Vec<Value> = numstat_lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            let parts: Vec<&str> = line.split('\t').collect();
+            let (status, display_file) = status_entries
+                .get(i)
+                .cloned()
+                .unwrap_or_else(|| ("M".to_string(), parts.get(2).unwrap_or(&"").to_string()));
+
+            if parts.len() >= 3 {
+                let added: i64 = parts[0].parse().unwrap_or(0);
+                let removed: i64 = parts[1].parse().unwrap_or(0);
+                let binary = parts[0] == "-";
+                // For binary files, get the file size from the commit tree
+                let size: Option<i64> = if binary {
+                    // Use the actual file path (not the display path with →)
+                    let lookup_file = if display_file.contains(" → ") {
+                        display_file.split(" → ").last().unwrap_or(&display_file).trim().to_string()
+                    } else {
+                        display_file.clone()
+                    };
+                    run_git(&repo_path, &["cat-file", "-s", &format!("{}:{}", hash, lookup_file)])
+                        .ok()
+                        .and_then(|s| s.trim().parse().ok())
+                } else {
+                    None
+                };
+                let mut obj = serde_json::json!({
+                    "file": display_file,
+                    "added": if binary { 0 } else { added },
+                    "removed": if binary { 0 } else { removed },
+                    "binary": binary,
+                    "status": status,
+                });
+                if let Some(s) = size {
+                    obj["size"] = serde_json::json!(s);
+                }
+                obj
+            } else {
+                serde_json::json!({ "file": display_file, "added": 0, "removed": 0, "binary": false, "status": "M" })
+            }
+        })
+        .collect();
+
+    // Get author and date
+    let info = run_git(&repo_path, &["log", "-1", "--format=%an|%aI", &hash])?;
+    let info_parts: Vec<&str> = info.trim().splitn(2, '|').collect();
+    let author = info_parts.first().unwrap_or(&"").to_string();
+    let date = info_parts.get(1).unwrap_or(&"").to_string();
+
+    Ok(serde_json::json!({
+        "hash": hash,
+        "message": message.trim(),
+        "author": author,
+        "date": date,
+        "files": files,
+    }))
 }

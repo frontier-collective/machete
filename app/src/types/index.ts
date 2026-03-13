@@ -15,6 +15,10 @@ export interface FileStatus {
   added: number;
   removed: number;
   binary: boolean;
+  /** Git status letter: A (added), M (modified), D (deleted), R (renamed), C (copied) */
+  status?: string;
+  /** File size in bytes (only present for binary files) */
+  size?: number;
 }
 
 export interface CommitContext {
@@ -77,6 +81,8 @@ export type View = "dashboard" | "commit" | "branches" | "pr" | "release" | "set
 export interface BranchInfo {
   name: string;
   current: boolean;
+  ahead: number;
+  behind: number;
 }
 
 export interface RemoteInfo {
@@ -84,10 +90,20 @@ export interface RemoteInfo {
   branches: string[];
 }
 
+// Commit detail (for viewing a historical commit)
+export interface CommitDetail {
+  hash: string;
+  message: string;
+  author: string;
+  date: string;
+  files: FileStatus[];
+}
+
 // Commit log
 export interface CommitLogEntry {
   hash: string;
   shortHash: string;
+  parents: string[];
   message: string;
   author: string;
   date: string;

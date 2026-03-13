@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { RepoSidebar } from "@/components/layout/RepoSidebar";
 import { Toolbar, type ToolbarAction } from "@/components/layout/Toolbar";
@@ -12,9 +13,10 @@ import { PrView } from "@/components/pr/PrView";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { useDrag } from "@/hooks/useDrag";
 import { RepoContext } from "@/hooks/useRepo";
+import { useRepoLayout } from "@/hooks/useRepoLayout";
 import type { RepoStatus } from "@/types";
 import { Button } from "@/components/ui/button";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, X } from "lucide-react";
 
 function App() {
   const [repoPath, setRepoPath] = useState<string | null>(
@@ -29,8 +31,26 @@ function App() {
   // Toolbar slide-over state
   const [activeAction, setActiveAction] = useState<ToolbarAction>(null);
 
+  // Global alert banner (e.g. checkout errors)
+  const [alertMessage, setAlertMessage] = useState<string | null>(null);
+
+  // Selected branch (from sidebar click → highlights in commit log)
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+
+  // Selected commit (from commit log click → shows detail in bottom panel)
+  // null = show uncommitted changes (staging area)
+  const [selectedCommitHash, setSelectedCommitHash] = useState<string | null>(null);
+
+  // Per-repo layout persistence
+  const { layout, updateLayout } = useRepoLayout(repoPath);
+
+  // Resizable: sidebar width (pixels)
+  const onSidebarDrag = useCallback((delta: number) => {
+    updateLayout({ sidebarWidth: Math.min(400, Math.max(140, layout.sidebarWidth + delta)) });
+  }, [layout.sidebarWidth, updateLayout]);
+  const sidebarDragHandle = useDrag(onSidebarDrag, "horizontal");
+
   // Resizable: log panel height (percentage of main area)
-  const [logPanelPct, setLogPanelPct] = useState(35);
   const mainAreaRef = useRef<HTMLDivElement>(null);
 
   const onLogDrag = useCallback((delta: number) => {
@@ -39,8 +59,8 @@ function App() {
     const h = area.getBoundingClientRect().height;
     if (h <= 0) return;
     const pctDelta = (delta / h) * 100;
-    setLogPanelPct((prev) => Math.min(70, Math.max(15, prev + pctDelta)));
-  }, []);
+    updateLayout({ logPanelPct: Math.min(70, Math.max(15, layout.logPanelPct + pctDelta)) });
+  }, [layout.logPanelPct, updateLayout]);
   const logDragHandle = useDrag(onLogDrag, "vertical");
 
   // Persist repo path
@@ -71,14 +91,34 @@ function App() {
     }
   }, [repoPath]);
 
-  // Poll status every 3 seconds
+  // Watch repo for filesystem changes and refresh on events
   useEffect(() => {
     if (!repoPath) return;
     hasLoaded.current = false;
     lastStatusJson.current = "";
     refreshStatus();
-    const interval = setInterval(refreshStatus, 3000);
-    return () => clearInterval(interval);
+
+    // Start the native file watcher
+    invoke("watch_repo", { repoPath }).catch(() => {
+      // Watcher failed — fall back to polling
+    });
+
+    // Listen for fs change events from the watcher
+    let unlisten: (() => void) | null = null;
+    listen("repo-fs-changed", () => {
+      refreshStatus();
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    // Fallback poll every 5s in case watcher misses something
+    const interval = setInterval(refreshStatus, 5000);
+
+    return () => {
+      clearInterval(interval);
+      if (unlisten) unlisten();
+      invoke("unwatch_repo").catch(() => {});
+    };
   }, [repoPath, refreshStatus]);
 
   const handleOpenRepo = async () => {
@@ -106,23 +146,42 @@ function App() {
 
   return (
     <RepoContext.Provider
-      value={{ repoPath, setRepoPath, status, statusLoading, statusError, refreshStatus }}
+      value={{ repoPath, setRepoPath, status, statusLoading, statusError, refreshStatus, selectedBranch, setSelectedBranch, selectedCommitHash, setSelectedCommitHash, layout, updateLayout }}
     >
       <div className="flex h-screen w-screen overflow-hidden">
         {/* Sidebar: branches, remotes, tags */}
-        <RepoSidebar />
+        <RepoSidebar width={layout.sidebarWidth} onError={setAlertMessage} />
+
+        {/* Sidebar drag handle */}
+        <div
+          className="w-1 shrink-0 cursor-col-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
+          onMouseDown={sidebarDragHandle}
+        />
 
         {/* Main area */}
         <div className="flex flex-1 flex-col overflow-hidden relative">
           {/* Toolbar */}
           <Toolbar activeAction={activeAction} onAction={setActiveAction} />
 
+          {/* Alert banner */}
+          {alertMessage && (
+            <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-3 py-1.5 text-xs text-destructive shrink-0">
+              <span className="flex-1 truncate">{alertMessage}</span>
+              <button
+                onClick={() => setAlertMessage(null)}
+                className="shrink-0 rounded p-0.5 hover:bg-destructive/20"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
           {/* Content: log + staging */}
           <div ref={mainAreaRef} className="flex flex-1 flex-col overflow-hidden">
             {/* Commit log (top) */}
             <div
               className="overflow-hidden border-b bg-card"
-              style={{ height: `${logPanelPct}%` }}
+              style={{ height: `${layout.logPanelPct}%` }}
             >
               <ErrorBoundary>
                 <CommitLog />
@@ -131,12 +190,12 @@ function App() {
 
             {/* Draggable divider between log and staging */}
             <div
-              className="h-1 shrink-0 cursor-row-resize bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
+              className="h-1 shrink-0 cursor-row-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
               onMouseDown={logDragHandle}
             />
 
             {/* Staging + diff + commit (bottom) */}
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden px-2">
               <ErrorBoundary>
                 <CommitView />
               </ErrorBoundary>
