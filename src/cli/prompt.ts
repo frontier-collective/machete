@@ -9,7 +9,15 @@ export async function confirm(message: string, defaultYes = false): Promise<bool
   const hint = defaultYes ? "(Y/n)" : "(y/N)";
 
   return new Promise((resolve) => {
+    let answered = false;
+    rl.on("close", () => {
+      if (!answered) {
+        console.log();
+        process.exit(0);
+      }
+    });
     rl.question(`${message} ${hint} `, (answer) => {
+      answered = true;
       rl.close();
       const trimmed = answer.trim().toLowerCase();
       if (trimmed === "") {
@@ -37,7 +45,15 @@ export async function selectOne(
   console.log();
 
   return new Promise((resolve) => {
+    let answered = false;
+    rl.on("close", () => {
+      if (!answered) {
+        console.log();
+        process.exit(0);
+      }
+    });
     rl.question("Select [1]: ", (answer) => {
+      answered = true;
       rl.close();
       const trimmed = answer.trim();
       if (trimmed === "") {
@@ -70,9 +86,17 @@ export async function selectMultiple(
   console.log();
 
   return new Promise((resolve) => {
+    let answered = false;
+    rl.on("close", () => {
+      if (!answered) {
+        console.log();
+        process.exit(0);
+      }
+    });
     rl.question(
       "Enter numbers to select (comma-separated, or 'all'): ",
       (answer) => {
+        answered = true;
         rl.close();
         const trimmed = answer.trim().toLowerCase();
 

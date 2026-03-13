@@ -26,7 +26,7 @@ import {
   extractReleaseNotes,
 } from "../lib/changelog.js";
 import { success, error, warning, info, dim, bold } from "../cli/format.js";
-import { confirm } from "../cli/prompt.js";
+import { confirm, selectOne } from "../cli/prompt.js";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
@@ -61,10 +61,18 @@ export async function runRelease(args: ParsedArgs): Promise<void> {
     process.exit(1);
   }
 
-  const bump = args._[1] as Bump | undefined;
-  if (!bump || !VALID_BUMPS.includes(bump)) {
-    error(`Usage: ${bold("machete release <patch|minor|major>")}`);
+  let bump = args._[1] as Bump | undefined;
+  if (bump && !VALID_BUMPS.includes(bump)) {
+    error(`Invalid bump type ${bold(String(bump))}. Must be ${bold("patch")}, ${bold("minor")}, or ${bold("major")}.`);
     process.exit(1);
+  }
+  if (!bump) {
+    const current = readVersionFromDisk();
+    const choices = VALID_BUMPS.map(
+      (b) => `${b}  ${current} → ${computeNextVersion(current, b)}`
+    );
+    const selected = await selectOne("Select release type:", choices);
+    bump = selected.split(/\s+/)[0] as Bump;
   }
 
   const dryRun = args.dryRun === true;
