@@ -160,23 +160,7 @@ function App() {
     }
   };
 
-  // Welcome screen when no repo
-  if (!repoPath) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-6 text-center">
-          <h1 className="text-3xl font-bold tracking-tight">Machete</h1>
-          <p className="text-muted-foreground">A sharp GUI for managing git repositories</p>
-          <Button size="lg" onClick={handleOpenRepo} className="gap-2">
-            <FolderOpen className="h-5 w-5" />
-            Open Repository
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Memoized context slices ──────────────────────────────────────
+  // ── Memoized context slices (must be before any early return) ───
   const repoPathCtx = useMemo(
     () => ({ repoPath, setRepoPath }),
     [repoPath, setRepoPath]
@@ -199,6 +183,22 @@ function App() {
     [repoPathCtx, statusCtx, selectionCtx, layoutCtx]
   );
 
+  // Welcome screen when no repo
+  if (!repoPath) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-6 text-center">
+          <h1 className="text-3xl font-bold tracking-tight">Machete</h1>
+          <p className="text-muted-foreground">A sharp GUI for managing git repositories</p>
+          <Button size="lg" onClick={handleOpenRepo} className="gap-2">
+            <FolderOpen className="h-5 w-5" />
+            Open Repository
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <RepoPathContext.Provider value={repoPathCtx}>
     <StatusContext.Provider value={statusCtx}>
@@ -207,7 +207,28 @@ function App() {
     <RepoContext.Provider value={combinedCtx}>
       <div className="flex h-screen w-screen flex-col overflow-hidden">
         {/* Toolbar — full width, acts as custom titlebar */}
-        <Toolbar activeAction={activeAction} onAction={setActiveAction} />
+        <ErrorBoundary>
+          <Toolbar activeAction={activeAction} onAction={setActiveAction} />
+        </ErrorBoundary>
+
+        {/* Status error banner */}
+        {statusError && (
+          <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-3 py-1.5 text-xs text-destructive shrink-0">
+            <span className="flex-1 truncate">{statusError}</span>
+            <button
+              onClick={() => { setRepoPath(null); setStatusError(null); setStatus(null); }}
+              className="shrink-0 rounded px-2 py-0.5 hover:bg-destructive/20 font-medium"
+            >
+              Change Repo
+            </button>
+            <button
+              onClick={() => setStatusError(null)}
+              className="shrink-0 rounded p-0.5 hover:bg-destructive/20"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
 
         {/* Alert banner */}
         {alertMessage && (
@@ -225,7 +246,9 @@ function App() {
         {/* Body: sidebar + main content */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Sidebar: branches, remotes, tags */}
-          <RepoSidebar width={layout.sidebarWidth} onError={setAlertMessage} />
+          <ErrorBoundary>
+            <RepoSidebar width={layout.sidebarWidth} onError={setAlertMessage} />
+          </ErrorBoundary>
 
           {/* Sidebar drag handle */}
           <div

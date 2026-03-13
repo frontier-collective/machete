@@ -31,12 +31,13 @@ fn machete_command() -> (String, Vec<String>) {
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
-    if let Some(dir) = exe_dir {
+    if let Some(dir) = &exe_dir {
         // Walk up from target/{debug,release}/ to repo root
         // app/src-tauri/target/debug -> app/src-tauri/target -> app/src-tauri -> app -> repo root
         let repo_root = dir.join("../../../../");
         let cli_entry = repo_root.join("dist/index.js").canonicalize();
         if let Ok(entry) = cli_entry {
+            eprintln!("[machete] Using dev CLI: node {}", entry.display());
             return (
                 "node".to_string(),
                 vec![entry.to_string_lossy().to_string()],
@@ -44,7 +45,20 @@ fn machete_command() -> (String, Vec<String>) {
         }
     }
 
-    // Fallback: use globally installed machete
+    // Check common global install locations
+    for candidate in &[
+        "/opt/homebrew/bin/machete",
+        "/usr/local/bin/machete",
+    ] {
+        if std::path::Path::new(candidate).exists() {
+            eprintln!("[machete] Using global CLI: {}", candidate);
+            return (candidate.to_string(), vec![]);
+        }
+    }
+
+    // Last resort: hope it's on PATH
+    let exe_path = exe_dir.map(|d| d.display().to_string()).unwrap_or_else(|| "unknown".to_string());
+    eprintln!("[machete] WARNING: No dev CLI found (exe at: {}), falling back to bare 'machete' on PATH", exe_path);
     ("machete".to_string(), vec![])
 }
 
@@ -62,7 +76,13 @@ fn run_machete(repo_path: &str, args: &[&str]) -> Result<Value, String> {
         .current_dir(repo_path)
         .env("PATH", enriched_path())
         .output()
-        .map_err(|e| format!("Failed to run machete ({}): {}", program, e))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("Machete CLI not found. Install it with: npm install -g @frontier-collective/machete")
+            } else {
+                format!("Failed to run machete ({}): {}", program, e)
+            }
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -88,14 +108,34 @@ fn enriched_path() -> String {
     )
 }
 
+/// Find the best git binary — prefer Homebrew/local installs over the Xcode shim.
+fn git_binary() -> &'static str {
+    static GIT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    GIT.get_or_init(|| {
+        // Prefer real git installs over the macOS /usr/bin/git Xcode shim
+        for candidate in &[
+            "/opt/homebrew/bin/git",
+            "/usr/local/bin/git",
+        ] {
+            if std::path::Path::new(candidate).exists() {
+                eprintln!("[machete] Using git: {}", candidate);
+                return candidate.to_string();
+            }
+        }
+        eprintln!("[machete] WARNING: No Homebrew/local git found, falling back to 'git' on PATH");
+        "git".to_string()
+    })
+}
+
 /// Run a raw git command in the given repo directory.
 fn run_git(repo_path: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let git = git_binary();
+    let output = Command::new(git)
         .args(args)
         .current_dir(repo_path)
         .env("PATH", enriched_path())
         .output()
-        .map_err(|e| format!("Failed to run git: {}", e))?;
+        .map_err(|e| format!("Failed to run git ({}): {}", git, e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

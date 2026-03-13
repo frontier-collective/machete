@@ -1,9 +1,17 @@
 # Machete — Makefile
 # Usage: make <target>
 # Run `make help` for available targets.
+#
+# This project has two build artifacts:
+#   1. CLI (npm package)  — TypeScript compiled to dist/, published to npm
+#   2. Desktop app (Tauri) — React frontend + Rust backend, bundled as a native .app
+#
+# The "build" and "dev" targets are for the CLI.
+# The "app-*" targets are for the desktop GUI app (lives in app/).
 
 .PHONY: help install setup build dev test clean \
-        version release release-notes-preview release-notes-preview-noai gh-release npm-publish
+        version release release-notes-preview release-notes-preview-noai gh-release npm-publish \
+        app-frontend app-backend app-build app-dmg app-pkg app-dev
 
 # ─── Colours ──────────────────────────────────────────────────────────
 
@@ -26,30 +34,35 @@ help: ## Show this help
 		/^##@/ { printf "\n  $(YELLOW)%s$(RESET)\n", substr($$0, 5) } \
 		/^[a-zA-Z_-]+:.*?## / { printf "  $(CYAN)%-30s$(RESET) %s\n", $$1, $$2 }' \
 		$(MAKEFILE_LIST)
-	@printf '\n'
+	@printf '\n  $(DIM)CLI targets (build, dev, test) compile the npm package in the repo root.$(RESET)\n'
+	@printf '  $(DIM)App targets (app-*) build the Tauri desktop GUI in app/.$(RESET)\n\n'
 
-##@ Build & Test
+# ─── CLI (npm package) ───────────────────────────────────────────────
+# These targets build the machete CLI — TypeScript source in src/,
+# compiled to dist/, published to npm as @frontier-collective/machete.
 
-install: ## Install npm dependencies
+##@ CLI (npm package)
+
+install: ## Install npm dependencies for the CLI
 	@printf '  $(GREEN)Installing dependencies...$(RESET)\n'
 	@npm install
 
-setup: install build ## Install, build, and link globally
+setup: install build ## Install deps, build CLI, and link globally
 	@npm link
 	@printf '  $(GREEN)Linked machete globally.$(RESET)\n'
 
-build: ## Compile TypeScript to dist/
+build: ## Compile CLI TypeScript → dist/
 	@printf '  $(GREEN)Building...$(RESET)\n'
 	@npm run build --silent
 
-dev: ## Watch mode — recompile on changes
+dev: ## Watch mode — recompile CLI on changes
 	npm run dev
 
-test: ## Run tests
+test: ## Run CLI tests
 	@printf '  $(GREEN)Running tests...$(RESET)\n'
 	@npm test
 
-clean: ## Remove dist/
+clean: ## Remove CLI dist/
 	@rm -rf dist/
 	@printf '  $(GREEN)Cleaned.$(RESET)\n'
 
@@ -135,6 +148,56 @@ npm-publish: ## Publish to npm registry
 	@printf '  $(GREEN)Publishing machete@$(VERSION) to npm...$(RESET)\n'
 	@npm publish --access public --auth-type=web
 	@printf '  $(GREEN)Published!$(RESET) Install with: npm install -g @frontier-collective/machete\n'
+
+# ─── Desktop App (Tauri) ─────────────────────────────────────────────
+# These targets build the Machete desktop GUI — a Tauri 2.0 app with a
+# React/Tailwind frontend (app/src/) and a Rust backend (app/src-tauri/).
+# The final output is a native .app/.dmg in app/src-tauri/target/release/bundle/.
+
+##@ Desktop App (Tauri)
+
+app-frontend: ## Build the React frontend (app/dist/)
+	@printf '  $(GREEN)Building frontend...$(RESET)\n'
+	@cd app && npm run build --silent
+	@printf '  $(GREEN)Frontend built → app/dist/$(RESET)\n'
+
+app-backend: ## Compile the Rust backend (release mode)
+	@printf '  $(GREEN)Compiling Rust backend...$(RESET)\n'
+	@cd app/src-tauri && cargo build --release
+	@printf '  $(GREEN)Backend compiled.$(RESET)\n'
+
+app-dev: ## Run the desktop app in dev mode (hot reload)
+	@cd app && npm run tauri dev
+
+app-build: ## Build .app bundle — make app-build [ARCH=aarch64-apple-darwin]
+	@printf '  $(GREEN)Building Tauri app...$(RESET)\n'
+	@if [ -n "$(ARCH)" ]; then \
+		printf '  $(DIM)Target: $(ARCH)$(RESET)\n'; \
+		cd app && npm run tauri build -- --target $(ARCH) --bundles app; \
+	else \
+		cd app && npm run tauri build -- --bundles app; \
+	fi
+	@printf '  $(GREEN)Bundle ready → app/src-tauri/target/release/bundle/macos/$(RESET)\n'
+
+app-dmg: ## Build .dmg disk image — make app-dmg [ARCH=aarch64-apple-darwin]
+	@printf '  $(GREEN)Building DMG installer...$(RESET)\n'
+	@if [ -n "$(ARCH)" ]; then \
+		printf '  $(DIM)Target: $(ARCH)$(RESET)\n'; \
+		cd app && npm run tauri build -- --target $(ARCH) --bundles dmg; \
+	else \
+		cd app && npm run tauri build -- --bundles dmg; \
+	fi
+	@printf '  $(GREEN)DMG ready → app/src-tauri/target/release/bundle/dmg/$(RESET)\n'
+
+app-pkg: ## Build .pkg installer — make app-pkg [ARCH=aarch64-apple-darwin]
+	@printf '  $(GREEN)Building PKG installer...$(RESET)\n'
+	@if [ -n "$(ARCH)" ]; then \
+		printf '  $(DIM)Target: $(ARCH)$(RESET)\n'; \
+		cd app && npm run tauri build -- --target $(ARCH) --bundles pkg; \
+	else \
+		cd app && npm run tauri build -- --bundles pkg; \
+	fi
+	@printf '  $(GREEN)PKG ready → app/src-tauri/target/release/bundle/pkg/$(RESET)\n'
 
 # Catch patch/minor/major as no-op targets so make doesn't error
 patch minor major:
