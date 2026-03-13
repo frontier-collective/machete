@@ -12,9 +12,11 @@ Part of the [Frontier Collective](https://www.npmjs.com/org/frontier-collective)
 
 ## Install
 
+### CLI
+
 Requires Node.js 22 or later.
 
-### Option A: npm (once published)
+#### Option A: npm (once published)
 
 ```bash
 npm install -g @frontier-collective/machete
@@ -27,7 +29,7 @@ npm uninstall -g @frontier-collective/machete
 rm -rf ~/.machete  # optional: remove global config directory
 ```
 
-### Option B: From source
+#### Option B: From source
 
 ```bash
 git clone https://github.com/frontier-collective/machete.git
@@ -45,6 +47,25 @@ To uninstall:
 npm rm -g @frontier-collective/machete
 rm -rf ~/.machete  # optional: remove global config directory
 ```
+
+### Desktop App
+
+Machete also ships as a native macOS desktop app built with Tauri 2, React, and Tailwind. It provides a visual interface for browsing branches, viewing commit history, and managing repositories.
+
+Requires [Rust](https://rustup.rs/) and Node.js 22+.
+
+```bash
+# Run in dev mode (hot reload)
+make app-dev
+
+# Build the .app bundle
+make app-build
+
+# Build a .dmg installer
+make app-dmg
+```
+
+The built app lands in `app/src-tauri/target/release/bundle/macos/`. Run `make help` for the full list of app build targets.
 
 ## Commands
 
@@ -228,6 +249,53 @@ The `~/.machete/` directory is created automatically on install.
 Configuration is merged in order: **defaults → global config → global credentials → local config → local secrets**
 
 Credential keys (`anthropicApiKey`, `githubToken`, `bitbucketToken`) are automatically routed to the appropriate secrets file.
+
+## Desktop App
+
+The Machete GUI is a native macOS app built with [Tauri 2](https://tauri.app/), React 19, and Tailwind CSS. It lives in the `app/` directory.
+
+### Features
+
+- **Repository browser** — Open any local git repo and view branches, remotes, tags, and config at a glance
+- **Commit log** — Visual git graph with commit history
+- **Branch management** — Create, switch, and delete branches; see ahead/behind counts
+- **Dashboard** — Repository status overview with file change indicators
+- **AI-powered views** — Commit, PR, and release views that mirror the CLI commands
+- **Settings** — Configure protected branches, remotes, and preferences per-repo
+- **Native macOS feel** — Overlay title bar with traffic lights, dark/light theme support
+
+### Architecture
+
+```
+app/
+├── src/                  # React frontend (Vite + Tailwind)
+│   ├── components/
+│   │   ├── layout/       # Shell, Sidebar, Toolbar, Header
+│   │   ├── log/          # Commit log + graph visualization
+│   │   └── ui/           # Radix-based UI primitives
+│   ├── hooks/            # useRepo, useMachete, useTheme, etc.
+│   └── App.tsx           # Main app with folder picker + repo views
+└── src-tauri/            # Rust backend (Tauri 2 commands)
+    ├── src/
+    │   ├── commands.rs   # Git operations exposed to the frontend
+    │   └── main.rs       # Tauri app setup + file watcher
+    └── Cargo.toml
+```
+
+The app version is synced automatically from the root `package.json` — no manual version management needed.
+
+### Build targets
+
+| Command | Description |
+|---------|-------------|
+| `make app-dev` | Run in dev mode with hot reload |
+| `make app-build` | Build `.app` bundle |
+| `make app-dmg` | Build `.dmg` disk image |
+| `make app-pkg` | Build `.pkg` installer |
+| `make app-frontend` | Build just the React frontend |
+| `make app-backend` | Compile just the Rust backend |
+
+All app targets accept an optional `ARCH` parameter for cross-compilation: `make app-build ARCH=aarch64-apple-darwin`
 
 ## Contributors
 
