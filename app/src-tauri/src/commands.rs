@@ -306,3 +306,101 @@ pub async fn set_config_value(
 
     Ok("Config updated".to_string())
 }
+
+// ─── Sidebar data (branches, remotes, tags) ─────────────────────────
+
+#[tauri::command]
+pub async fn get_branches(repo_path: String) -> Result<Value, String> {
+    // Local branches with current marker
+    let current = run_git(&repo_path, &["branch", "--show-current"])?;
+    let output = run_git(&repo_path, &["branch", "--format=%(refname:short)"])?;
+    let branches: Vec<Value> = output
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|name| {
+            serde_json::json!({
+                "name": name.trim(),
+                "current": name.trim() == current,
+            })
+        })
+        .collect();
+    Ok(serde_json::json!(branches))
+}
+
+#[tauri::command]
+pub async fn get_remotes(repo_path: String) -> Result<Value, String> {
+    let remotes_out = run_git(&repo_path, &["remote"])?;
+    let mut remotes: Vec<Value> = Vec::new();
+
+    for remote in remotes_out.lines().filter(|l| !l.is_empty()) {
+        let remote = remote.trim();
+        // Get remote branches
+        let refs_out = run_git(
+            &repo_path,
+            &["branch", "-r", "--format=%(refname:short)", "--list", &format!("{}/*", remote)],
+        )
+        .unwrap_or_default();
+
+        let branches: Vec<String> = refs_out
+            .lines()
+            .filter(|l| !l.is_empty() && !l.contains("HEAD"))
+            .map(|l| l.trim().to_string())
+            .collect();
+
+        remotes.push(serde_json::json!({
+            "name": remote,
+            "branches": branches,
+        }));
+    }
+
+    Ok(serde_json::json!(remotes))
+}
+
+#[tauri::command]
+pub async fn get_tags(repo_path: String) -> Result<Value, String> {
+    let output = run_git(&repo_path, &["tag", "--sort=-creatordate"]).unwrap_or_default();
+    let tags: Vec<String> = output
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.trim().to_string())
+        .collect();
+    Ok(serde_json::json!(tags))
+}
+
+// ─── Commit log ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_commit_log(repo_path: String, count: Option<u32>) -> Result<Value, String> {
+    let n = count.unwrap_or(100);
+    let format = "--format=%H%n%h%n%s%n%an%n%aI%n%D%n---";
+    let output = run_git(&repo_path, &["log", &format!("-{}", n), format, "--all"])?;
+
+    let mut commits: Vec<Value> = Vec::new();
+    let mut lines: Vec<&str> = Vec::new();
+
+    for line in output.lines() {
+        if line == "---" {
+            if lines.len() >= 6 {
+                let refs_str = lines[5];
+                let refs: Vec<String> = if refs_str.is_empty() {
+                    vec![]
+                } else {
+                    refs_str.split(", ").map(|s| s.trim().to_string()).collect()
+                };
+                commits.push(serde_json::json!({
+                    "hash": lines[0],
+                    "shortHash": lines[1],
+                    "message": lines[2],
+                    "author": lines[3],
+                    "date": lines[4],
+                    "refs": refs,
+                }));
+            }
+            lines.clear();
+        } else {
+            lines.push(line);
+        }
+    }
+
+    Ok(serde_json::json!(commits))
+}

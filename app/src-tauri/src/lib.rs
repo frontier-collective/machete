@@ -23,6 +23,10 @@ pub fn run() {
             commands::get_release_preview,
             commands::get_config_list,
             commands::set_config_value,
+            commands::get_branches,
+            commands::get_remotes,
+            commands::get_tags,
+            commands::get_commit_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

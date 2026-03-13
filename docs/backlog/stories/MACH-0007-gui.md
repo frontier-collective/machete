@@ -1,8 +1,8 @@
 ---
 id: MACH-0007
 title: Machete GUI — cross-platform graphical layer over machete CLI
-status: idea
-priority: low
+status: in-progress
+priority: high
 created: 2026-03-13
 ---
 
@@ -94,40 +94,121 @@ Recommend starting with approach 1 (shell out) and migrating to approach 2 if pe
 
 Before the GUI can consume CLI output programmatically, machete commands need a `--json` flag that outputs structured data instead of ANSI-formatted text. This is a prerequisite.
 
+## Layout Design (Sourcetree-inspired)
+
+The GUI uses a permanent panel layout (not a view-switcher). All core panels are visible
+simultaneously, with draggable dividers so the user can resize to taste.
+
+```
+┌──────────────┬─────────────────────────────────────────────────┐
+│  SIDEBAR     │  TOOLBAR    [ PR ] [ Prune ] [ Release ] [ ⚙ ] │
+│              ├─────────────────────────────────────────────────┤
+│  [Repo ▾]    │                                                 │
+│              │  COMMIT LOG                                     │
+│  ▾ Branches  │  (simple list Phase 1 → branch graph Phase 2)  │
+│    main      │                                                 │
+│    develop   │                                                 │
+│  ● feature/* ├── drag ────────────────────────────────────────-┤
+│              │                                                 │
+│  ▾ Remotes   │  STAGING + DIFF                                 │
+│    origin/   │  ┌─Staged──────┐  ┌─Diff─────────────────────┐ │
+│              │  │             │  │                           │ │
+│  ▾ Tags      │  ├─Unstaged────┤  │                           │ │
+│    0.3.0     │  │             │  │                           │ │
+│              │  └─────────────┘  └───────────────────────────┘ │
+│  ▾ Stashes   ├── drag ────────────────────────────────────────-┤
+│  (Phase 4)   │  COMMIT MESSAGE       [ AI ] [ Commit ] [ C&P] │
+└──────────────┴─────────────────────────────────────────────────┘
+```
+
+### Sidebar (always visible)
+
+- **Repo selector** — current repo name at top. Single repo Phase 1, multi-repo
+  dropdown in Phase 3.
+- **Branches** — local branches, current branch highlighted (bold / dot indicator).
+  Click to checkout (Phase 2). Right-click for merge/rebase later.
+- **Remotes** — collapsible tree of remote tracking branches.
+- **Tags** — collapsible list of tags.
+- **Stashes** — added in Phase 4.
+
+### Top toolbar
+
+Action-oriented workflows that don't need permanent screen space:
+
+- **PR** — opens slide-over panel for AI-powered PR creation
+- **Prune** — opens dialog/panel for safe branch cleanup
+- **Release** — opens release automation flow (Phase 4)
+- **Settings** (⚙) — opens settings as a dialog/modal
+
+### Main area (three permanent resizable panels)
+
+1. **Commit log** — Phase 1: simple commit list (hash, message, author, date).
+   Phase 2: full branch graph with merge/squash-merge visualization.
+2. **Staging + Diff** — file list (staged/unstaged with draggable split) and diff
+   viewer (side by side with draggable split). All resizable.
+3. **Commit message bar** — resizable textarea with AI generate button and
+   commit/commit-and-push actions.
+
+All three panel boundaries are draggable dividers.
+
 ## Feature Phases
 
 ### Phase 0: Prerequisites (CLI work)
 
-- [ ] Add `--json` output flag to all machete commands
-- [ ] Add `machete status` command (branch info, ahead/behind, dirty files)
-- [ ] Ensure all commands are non-interactive when piped (detect TTY)
-- [ ] Evaluate Tauri 2.0 with a hello-world app on all 3 platforms
+- [x] Add `--json` output flag to all machete commands
+- [x] Add `machete status` command (branch info, ahead/behind, dirty files)
+- [x] Ensure all commands are non-interactive when piped (detect TTY)
+- [x] Evaluate Tauri 2.0 with a hello-world app on all 3 platforms
 
-### Phase 1: MVP — Commit workflow
+### Phase 1: MVP — Sourcetree-style layout + commit workflow
 
-Scope: A single-repo window that handles the most common daily workflow.
+Scope: A single-repo window with permanent panels matching the layout design above.
 
-- [ ] Repo open/recent repos list
-- [ ] File status view (staged / unstaged / untracked) with diff stats
-- [ ] Diff viewer (side-by-side and unified)
-- [ ] Stage/unstage individual files or hunks
-- [ ] AI commit message generation (invoke `machete commit`)
-- [ ] Commit message editor with preview
+#### Layout & infrastructure
+- [x] Tauri 2.0 app scaffold (React + Tailwind + shadcn/ui)
+- [x] `machete gui` CLI command to launch app (`--dev` for hot-reload)
+- [x] Rust backend with CLI bridge (`machete_command()`, PATH enrichment, ANSI stripping)
+- [x] Draggable panel dividers (staged/unstaged, left/right, commit bar height)
+- [x] localStorage persistence for repo path across HMR reloads
+- [x] React ErrorBoundary for crash resilience
+- [ ] Sourcetree-style layout: sidebar explorer + toolbar + permanent panels
+- [ ] Sidebar: branch/remote/tag tree (read-only, shows current branch)
+- [ ] Toolbar: PR, Prune, Settings as action buttons
+- [ ] Commit log panel (top of main area, simple list)
+
+#### Commit workflow
+- [x] Repo open via folder picker
+- [x] File status view (staged / unstaged) with diff stats
+- [x] Diff viewer (unified, syntax-colored)
+- [x] Stage/unstage individual files (checkbox toggle)
+- [x] Stage all / unstage all
+- [x] AI commit message generation (invoke `machete commit --json`)
+- [x] Commit message editor (resizable)
+- [x] Commit and Commit & Push buttons
 - [ ] Push/pull with remote status indicator
-- [ ] Whetstone-aware file grouping (`.whetstone/` dimmed, exclude-by-default)
+
+#### PR (toolbar action)
+- [x] PR creation view with AI generation
+- [x] Auto-detect base branch
+- [x] Draft toggle
+- [ ] Move from full-page view to slide-over/dialog triggered by toolbar
+
+#### Branch management (toolbar action)
+- [x] Prune integration (`machete prune --json`)
+- [ ] Move from full-page view to dialog triggered by toolbar
 
 ### Phase 2: Branch management
 
-- [ ] Commit graph / history view (branch visualization)
+- [ ] Commit graph / history view (branch visualization replacing simple list)
 - [ ] Branch list with safety indicators (from `machete prune --json`)
 - [ ] One-click safe prune (with squash-merge detection shown visually)
-- [ ] Branch creation with machete naming conventions
-- [ ] Checkout / switch branches
+- [ ] Branch creation with machete naming conventions (`machete branch`)
+- [ ] Checkout / switch branches (click branch in sidebar)
 - [ ] Merge / rebase with conflict resolution UI
 
 ### Phase 3: Multi-repo & workspaces
 
-- [ ] Tabbed interface for multiple repos
+- [ ] Tabbed interface for multiple repos (repo selector becomes tab bar)
 - [ ] Workspace save/restore (remember which repos were open)
 - [ ] Cross-repo branch overview (e.g. "which repos have uncommitted work?")
 - [ ] Drag-and-drop tab reordering
@@ -137,12 +218,12 @@ Scope: A single-repo window that handles the most common daily workflow.
 - [ ] Visual release flow (version picker, changelog preview, progress indicators)
 - [ ] Interactive rebase
 - [ ] Cherry-pick with visual commit selection
-- [ ] Stash management
+- [ ] Stash management (sidebar section + stash panel)
 - [ ] PR integration (GitHub, Bitbucket) — view, create, merge
 
 ### Phase 5: Polish & ecosystem
 
-- [ ] Dark/light theme
+- [x] Dark/light theme
 - [ ] Keyboard shortcuts (vim-style optional)
 - [ ] Settings UI (wrapping `.macheterc` config)
 - [ ] Auto-update mechanism

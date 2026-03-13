@@ -1,23 +1,22 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Shell } from "@/components/layout/Shell";
+import { RepoSidebar } from "@/components/layout/RepoSidebar";
+import { Toolbar, type ToolbarAction } from "@/components/layout/Toolbar";
+import { SlideOver } from "@/components/layout/SlideOver";
 import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
-import { DashboardView } from "@/components/dashboard/DashboardView";
+import { CommitLog } from "@/components/log/CommitLog";
 import { CommitView } from "@/components/commit/CommitView";
 import { BranchesView } from "@/components/branches/BranchesView";
 import { PrView } from "@/components/pr/PrView";
-import { ReleaseView } from "@/components/release/ReleaseView";
 import { SettingsView } from "@/components/settings/SettingsView";
+import { useDrag } from "@/hooks/useDrag";
 import { RepoContext } from "@/hooks/useRepo";
-import type { View, RepoStatus } from "@/types";
+import type { RepoStatus } from "@/types";
 import { Button } from "@/components/ui/button";
 import { FolderOpen } from "lucide-react";
 
 function App() {
-  const [currentView, setCurrentView] = useState<View>(
-    () => (localStorage.getItem("machete:view") as View) || "dashboard"
-  );
   const [repoPath, setRepoPath] = useState<string | null>(
     () => localStorage.getItem("machete:repoPath")
   );
@@ -27,7 +26,24 @@ function App() {
   const lastStatusJson = useRef<string>("");
   const hasLoaded = useRef(false);
 
-  // Persist repo path and view to localStorage for HMR survival
+  // Toolbar slide-over state
+  const [activeAction, setActiveAction] = useState<ToolbarAction>(null);
+
+  // Resizable: log panel height (percentage of main area)
+  const [logPanelPct, setLogPanelPct] = useState(35);
+  const mainAreaRef = useRef<HTMLDivElement>(null);
+
+  const onLogDrag = useCallback((delta: number) => {
+    const area = mainAreaRef.current;
+    if (!area) return;
+    const h = area.getBoundingClientRect().height;
+    if (h <= 0) return;
+    const pctDelta = (delta / h) * 100;
+    setLogPanelPct((prev) => Math.min(70, Math.max(15, prev + pctDelta)));
+  }, []);
+  const logDragHandle = useDrag(onLogDrag, "vertical");
+
+  // Persist repo path
   useEffect(() => {
     if (repoPath) {
       localStorage.setItem("machete:repoPath", repoPath);
@@ -36,18 +52,12 @@ function App() {
     }
   }, [repoPath]);
 
-  useEffect(() => {
-    localStorage.setItem("machete:view", currentView);
-  }, [currentView]);
-
   const refreshStatus = useCallback(async () => {
     if (!repoPath) return;
-    // Only show loading spinner on first fetch
     if (!hasLoaded.current) setStatusLoading(true);
     try {
       const result = await invoke<RepoStatus>("get_repo_status", { repoPath });
       const json = JSON.stringify(result);
-      // Only update state if data actually changed
       if (json !== lastStatusJson.current) {
         lastStatusJson.current = json;
         setStatus(result);
@@ -75,11 +85,10 @@ function App() {
     const selected = await open({ directory: true, multiple: false });
     if (selected && typeof selected === "string") {
       setRepoPath(selected);
-      setCurrentView("dashboard");
     }
   };
 
-  // Repo selector screen
+  // Welcome screen when no repo
   if (!repoPath) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-background">
@@ -95,32 +104,77 @@ function App() {
     );
   }
 
-  const renderView = () => {
-    switch (currentView) {
-      case "dashboard":
-        return <DashboardView onNavigate={setCurrentView} />;
-      case "commit":
-        return <CommitView />;
-      case "branches":
-        return <BranchesView />;
-      case "pr":
-        return <PrView />;
-      case "release":
-        return <ReleaseView />;
-      case "settings":
-        return <SettingsView />;
-    }
-  };
-
   return (
     <RepoContext.Provider
       value={{ repoPath, setRepoPath, status, statusLoading, statusError, refreshStatus }}
     >
-      <Shell currentView={currentView} onNavigate={setCurrentView}>
-        <ErrorBoundary>
-          {renderView()}
-        </ErrorBoundary>
-      </Shell>
+      <div className="flex h-screen w-screen overflow-hidden">
+        {/* Sidebar: branches, remotes, tags */}
+        <RepoSidebar />
+
+        {/* Main area */}
+        <div className="flex flex-1 flex-col overflow-hidden relative">
+          {/* Toolbar */}
+          <Toolbar activeAction={activeAction} onAction={setActiveAction} />
+
+          {/* Content: log + staging */}
+          <div ref={mainAreaRef} className="flex flex-1 flex-col overflow-hidden">
+            {/* Commit log (top) */}
+            <div
+              className="overflow-hidden border-b bg-card"
+              style={{ height: `${logPanelPct}%` }}
+            >
+              <ErrorBoundary>
+                <CommitLog />
+              </ErrorBoundary>
+            </div>
+
+            {/* Draggable divider between log and staging */}
+            <div
+              className="h-1 shrink-0 cursor-row-resize bg-transparent hover:bg-primary/30 active:bg-primary/50 transition-colors"
+              onMouseDown={logDragHandle}
+            />
+
+            {/* Staging + diff + commit (bottom) */}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <ErrorBoundary>
+                <CommitView />
+              </ErrorBoundary>
+            </div>
+          </div>
+
+          {/* Slide-over panels for toolbar actions */}
+          <SlideOver
+            title="Create Pull Request"
+            open={activeAction === "pr"}
+            onClose={() => setActiveAction(null)}
+          >
+            <ErrorBoundary>
+              <PrView />
+            </ErrorBoundary>
+          </SlideOver>
+
+          <SlideOver
+            title="Branch Management"
+            open={activeAction === "prune"}
+            onClose={() => setActiveAction(null)}
+          >
+            <ErrorBoundary>
+              <BranchesView />
+            </ErrorBoundary>
+          </SlideOver>
+
+          <SlideOver
+            title="Settings"
+            open={activeAction === "settings"}
+            onClose={() => setActiveAction(null)}
+          >
+            <ErrorBoundary>
+              <SettingsView />
+            </ErrorBoundary>
+          </SlideOver>
+        </div>
+      </div>
     </RepoContext.Provider>
   );
 }

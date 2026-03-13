@@ -72,3 +72,24 @@ export interface ConfigEntry {
 }
 
 export type View = "dashboard" | "commit" | "branches" | "pr" | "release" | "settings";
+
+// Sidebar data
+export interface BranchInfo {
+  name: string;
+  current: boolean;
+}
+
+export interface RemoteInfo {
+  name: string;
+  branches: string[];
+}
+
+// Commit log
+export interface CommitLogEntry {
+  hash: string;
+  shortHash: string;
+  message: string;
+  author: string;
+  date: string;
+  refs: string[];
+}

@@ -164,7 +164,7 @@ export function BranchesView() {
       )}
 
       {classification && !loading && (
-        <ScrollArea className="h-[calc(100vh-16rem)]">
+        <ScrollArea className="max-h-[60vh]">
           <div className="space-y-6 pr-4">
             {/* Protected Branches */}
             {classification.protected.length > 0 && (
