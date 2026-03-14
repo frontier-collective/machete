@@ -66,12 +66,23 @@ export function RepoSidebar({
   const { selectedBranch, setSelectedBranch } = useSelection();
   const { layout, updateLayout } = useLayout();
 
-  const [branches, setBranches] = useState<BranchInfo[]>([]);
-  const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
-  const [stashes, setStashes] = useState<StashEntry[]>([]);
+  const [branches, setBranches] = useState<BranchInfo[]>(() => {
+    try { const r = localStorage.getItem(`machete:sidebar:branches:${repoPath}`); return r ? JSON.parse(r) : []; } catch { return []; }
+  });
+  const [remotes, setRemotes] = useState<RemoteInfo[]>(() => {
+    try { const r = localStorage.getItem(`machete:sidebar:remotes:${repoPath}`); return r ? JSON.parse(r) : []; } catch { return []; }
+  });
+  const [tags, setTags] = useState<string[]>(() => {
+    try { const r = localStorage.getItem(`machete:sidebar:tags:${repoPath}`); return r ? JSON.parse(r) : []; } catch { return []; }
+  });
+  const [stashes, setStashes] = useState<StashEntry[]>(() => {
+    try { const r = localStorage.getItem(`machete:sidebar:stashes:${repoPath}`); return r ? JSON.parse(r) : []; } catch { return []; }
+  });
   const [protectedBranches, setProtectedBranches] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => {
+    // Don't show loading if we have cached branch data
+    try { return !localStorage.getItem(`machete:sidebar:branches:${repoPath}`); } catch { return true; }
+  });
   const [stashLoading, setStashLoading] = useState<string | null>(null);
 
   // Section open/close state from persisted layout
@@ -126,6 +137,12 @@ export function RepoSidebar({
       setRemotes(r);
       setTags(t);
       setStashes(s);
+      try {
+        localStorage.setItem(`machete:sidebar:branches:${repoPath}`, JSON.stringify(b));
+        localStorage.setItem(`machete:sidebar:remotes:${repoPath}`, JSON.stringify(r));
+        localStorage.setItem(`machete:sidebar:tags:${repoPath}`, JSON.stringify(t));
+        localStorage.setItem(`machete:sidebar:stashes:${repoPath}`, JSON.stringify(s));
+      } catch { /* ignore */ }
       const pb = cfg.find((e) => e.key === "protectedBranches");
       setProtectedBranches(
         Array.isArray(pb?.value) ? (pb.value as string[]) : ["main", "master", "develop"]

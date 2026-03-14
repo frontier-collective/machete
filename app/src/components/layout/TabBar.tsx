@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Plus, X } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Plus, X, Loader2 } from "lucide-react";
 import type { TabManager } from "@/hooks/useTabManager";
 import logoSvg from "@/assets/machete-logo.svg";
 
@@ -60,9 +61,11 @@ export function TabBar({ tabManager }: TabBarProps) {
   }, []);
 
   const handleNewTab = useCallback(async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === "string") {
-      openTab(selected);
+    const selected = await open({ directory: true, multiple: true });
+    if (!selected) return;
+    const paths = Array.isArray(selected) ? selected : [selected];
+    for (const path of paths) {
+      openTab(path);
     }
   }, [openTab]);
 
@@ -217,12 +220,32 @@ export function TabBar({ tabManager }: TabBarProps) {
     setContextMenu(null);
   }, [contextMenu, startRename]);
 
+  /** Start native window drag on mousedown; double-click to toggle maximize.
+   *  Only fires when the click is on empty tab-bar space (not a tab or button). */
+  const handleBarMouseDown = useCallback(async (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    // If the click target is inside a tab, button, or input, let it handle the event
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-tab], button, input")) return;
+    const appWindow = getCurrentWindow();
+    if (e.detail === 2) {
+      if (await appWindow.isMaximized()) {
+        await appWindow.unmaximize();
+      } else {
+        await appWindow.maximize();
+      }
+    } else {
+      await appWindow.startDragging();
+    }
+  }, []);
+
   if (tabs.length === 0) return null;
 
   return (
     <>
-      <div className="flex h-9 items-center border-b bg-background/80 shrink-0 select-none overflow-x-auto pl-[78px]"
-        data-tauri-drag-region=""
+      <div
+        className="flex h-9 items-center border-b bg-background/80 shrink-0 select-none overflow-x-auto pl-[78px]"
+        onMouseDown={handleBarMouseDown}
       >
         {/* Logo */}
         <div className="flex items-center shrink-0 px-2">
@@ -242,6 +265,7 @@ export function TabBar({ tabManager }: TabBarProps) {
             return (
               <div
                 key={tab.id}
+                data-tab
                 ref={(el) => { if (el) tabRefs.current.set(tab.id, el); else tabRefs.current.delete(tab.id); }}
                 className={`group relative flex items-center gap-1.5 px-3 h-9 text-xs cursor-pointer border-r border-border/50 max-w-[200px] min-w-[100px] ${
                   isActive
@@ -268,13 +292,14 @@ export function TabBar({ tabManager }: TabBarProps) {
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand" />
                 )}
 
-                {/* Status dot */}
-                {tabStatus?.dirty && (
+                {/* Status indicator: spinner when loading, dot when idle */}
+                {tabStatus?.loading ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />
+                ) : tabStatus?.dirty ? (
                   <div className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" title="Uncommitted changes" />
-                )}
-                {tabStatus && !tabStatus.dirty && tabStatus.unpushed && (
+                ) : tabStatus?.unpushed ? (
                   <div className="h-1.5 w-1.5 rounded-full bg-orange-500 shrink-0" title="Unpushed commits" />
-                )}
+                ) : null}
 
                 {isEditing ? (
                   <input

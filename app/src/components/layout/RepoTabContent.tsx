@@ -12,7 +12,7 @@ import { PrView } from "@/components/pr/PrView";
 import { ReleaseView } from "@/components/release/ReleaseView";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { useDrag } from "@/hooks/useDrag";
-import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
+import { useKeyboardShortcuts, ActiveTabContext, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import {
   RepoContext,
   RepoPathContext,
@@ -22,6 +22,7 @@ import {
   ClassificationContext,
   RepoMetadataContext,
   PullRequestsContext,
+  TabLoadingContext,
 } from "@/hooks/useRepo";
 import { useRepoLayout } from "@/hooks/useRepoLayout";
 import type { RepoStatus, PruneClassification, ConfigEntry, GithubPr } from "@/types";
@@ -44,6 +45,18 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
   const refreshInFlight = useRef(false);
   const refreshGeneration = useRef(0);
 
+  // Tab loading counter — tracks concurrent async operations for the tab spinner
+  const tabLoadingCount = useRef(0);
+  const [tabLoading, setTabLoading] = useState(false);
+  const startLoading = useCallback(() => {
+    tabLoadingCount.current += 1;
+    setTabLoading(true);
+  }, []);
+  const stopLoading = useCallback(() => {
+    tabLoadingCount.current = Math.max(0, tabLoadingCount.current - 1);
+    if (tabLoadingCount.current === 0) setTabLoading(false);
+  }, []);
+
   // Branch classification (shared between sidebar + BranchesView)
   // Restore from localStorage so the UI starts with the last known state
   const [classification, setClassification] = useState<PruneClassification | null>(() => {
@@ -59,6 +72,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
   const fetchClassification = useCallback(async () => {
     if (!repoPath || classificationLoading) return;
     setClassificationLoading(true);
+    startLoading();
     try {
       const result = await invoke<PruneClassification>("get_branch_classification", { repoPath });
       setClassification(result);
@@ -69,18 +83,44 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
       // Non-critical
     } finally {
       setClassificationLoading(false);
+      stopLoading();
     }
-  }, [repoPath, classificationLoading]);
+  }, [repoPath, classificationLoading, startLoading, stopLoading]);
 
-  // Repo metadata: default branch + protected branches (loaded once per repo)
-  const [defaultBranch, setDefaultBranch] = useState<string | null>(null);
-  const [protectedBranches, setProtectedBranches] = useState<string[]>(["main", "master", "develop"]);
+  // Repo metadata: default branch + protected branches (loaded once per repo, cached in localStorage)
+  const [defaultBranch, setDefaultBranch] = useState<string | null>(() => {
+    try {
+      const raw = localStorage.getItem(`machete:defaultBranch:${repoPath}`);
+      return raw ?? null;
+    } catch { return null; }
+  });
+  const [protectedBranches, setProtectedBranches] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(`machete:protectedBranches:${repoPath}`);
+      return raw ? (JSON.parse(raw) as string[]) : ["main", "master", "develop"];
+    } catch { return ["main", "master", "develop"]; }
+  });
 
-  // Pull requests — map from branch name → open/draft PR
-  const [prByBranch, setPrByBranch] = useState<Map<string, GithubPr>>(new Map());
+  // Pull requests — map from branch name → open/draft PR (cached in localStorage)
+  const [prByBranch, setPrByBranch] = useState<Map<string, GithubPr>>(() => {
+    try {
+      const raw = localStorage.getItem(`machete:prs:${repoPath}`);
+      if (raw) {
+        const entries = JSON.parse(raw) as [string, GithubPr][];
+        return new Map(entries);
+      }
+    } catch { /* ignore */ }
+    return new Map();
+  });
 
   // Toolbar slide-over state
   const [activeAction, setActiveAction] = useState<ToolbarAction>(null);
+
+  // Session-level intro dismissal — survives slide-over open/close cycles.
+  // Once the user dismisses the intro (or has "don't show again" checked),
+  // reopening the sheet skips straight to the main view.
+  const [branchIntroDismissed, setBranchIntroDismissed] = useState(false);
+  const [releaseIntroDismissed, setReleaseIntroDismissed] = useState(false);
 
   // Global alert banner (e.g. checkout errors)
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
@@ -158,18 +198,16 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
 
   // Fetch repo metadata (default branch + protected branches) once per repo
   useEffect(() => {
-    setDefaultBranch(null);
-    setProtectedBranches(["main", "master", "develop"]);
-
     Promise.all([
       invoke<string>("get_default_base_branch", { repoPath }),
       invoke<ConfigEntry[]>("get_config_list", { repoPath }),
     ]).then(([branch, cfg]) => {
       setDefaultBranch(branch);
+      try { localStorage.setItem(`machete:defaultBranch:${repoPath}`, branch); } catch { /* ignore */ }
       const pb = cfg.find((e) => e.key === "protectedBranches");
-      setProtectedBranches(
-        Array.isArray(pb?.value) ? (pb.value as string[]) : ["main", "master", "develop"]
-      );
+      const resolved = Array.isArray(pb?.value) ? (pb.value as string[]) : ["main", "master", "develop"];
+      setProtectedBranches(resolved);
+      try { localStorage.setItem(`machete:protectedBranches:${repoPath}`, JSON.stringify(resolved)); } catch { /* ignore */ }
     }).catch(() => {});
   }, [repoPath]);
 
@@ -186,6 +224,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
         }
       }
       setPrByBranch(map);
+      try { localStorage.setItem(`machete:prs:${repoPath}`, JSON.stringify([...map.entries()])); } catch { /* ignore */ }
     } catch {
       // gh CLI not available or not in a GitHub repo — silently ignore
     }
@@ -196,6 +235,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     setPrByBranch((prev) => {
       const next = new Map(prev);
       next.set(pr.headRefName, pr);
+      try { localStorage.setItem(`machete:prs:${repoPath}`, JSON.stringify([...next.entries()])); } catch { /* ignore */ }
       return next;
     });
     // Background refresh to get the real PR data from GitHub
@@ -214,6 +254,25 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     const unlisten = listen("remote-fetched", () => { fetchPrs(); });
     return () => { unlisten.then((fn) => fn()); };
   }, [fetchPrs]);
+
+  // Listen for "refresh all tabs" — fetch this tab's remote + refresh panels
+  useEffect(() => {
+    const unlisten = listen("refresh-all-tabs", async () => {
+      if (!repoPath) return;
+      startLoading();
+      try {
+        await invoke("fetch_remote", { repoPath });
+        refreshStatus();
+        fetchPrs();
+        fetchClassification();
+      } catch {
+        // Non-critical
+      } finally {
+        stopLoading();
+      }
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [repoPath, refreshStatus, fetchPrs, fetchClassification, startLoading, stopLoading]);
 
   // Watch repo for filesystem changes — only when active
   useEffect(() => {
@@ -332,13 +391,13 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     fetchClassification();
   }, [status?.branch, classification, fetchClassification]);
 
-  // ── Report tab status to parent (for dot indicators) ─────────────
+  // ── Report tab status to parent (for dot indicators + spinner) ────
   useEffect(() => {
     if (!onStatusReport || !status) return;
     const dirty = !status.isClean;
     const unpushed = status.aheadCount > 0;
-    onStatusReport(tabId, { dirty, unpushed });
-  }, [tabId, status, onStatusReport]);
+    onStatusReport(tabId, { dirty, unpushed, loading: tabLoading });
+  }, [tabId, status, tabLoading, onStatusReport]);
 
   // ── Memoized context slices ───────────────────────────────────────
   // setRepoPath is a no-op within a tab — repo path is fixed per tab
@@ -372,12 +431,17 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     () => ({ prByBranch, addPr }),
     [prByBranch, addPr]
   );
+  const tabLoadingCtx = useMemo(
+    () => ({ startLoading, stopLoading }),
+    [startLoading, stopLoading]
+  );
   const combinedCtx = useMemo(
     () => ({ ...repoPathCtx, ...statusCtx, ...selectionCtx, ...layoutCtx }),
     [repoPathCtx, statusCtx, selectionCtx, layoutCtx]
   );
 
   return (
+    <ActiveTabContext.Provider value={isActive}>
     <RepoPathContext.Provider value={repoPathCtx}>
     <StatusContext.Provider value={statusCtx}>
     <SelectionContext.Provider value={selectionCtx}>
@@ -385,6 +449,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     <ClassificationContext.Provider value={classificationCtx}>
     <RepoMetadataContext.Provider value={repoMetadataCtx}>
     <PullRequestsContext.Provider value={pullRequestsCtx}>
+    <TabLoadingContext.Provider value={tabLoadingCtx}>
     <RepoContext.Provider value={combinedCtx}>
       <div className={`flex h-full w-full flex-col overflow-hidden ${isActive ? "" : "hidden"}`}>
         {/* Toolbar — full width, acts as custom titlebar */}
@@ -484,7 +549,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
               raw
             >
               <ErrorBoundary>
-                <BranchesView />
+                <BranchesView introDismissed={branchIntroDismissed} onIntroDismissed={() => setBranchIntroDismissed(true)} />
               </ErrorBoundary>
             </SlideOver>
 
@@ -495,7 +560,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
               raw
             >
               <ErrorBoundary>
-                <ReleaseView />
+                <ReleaseView introDismissed={releaseIntroDismissed} onIntroDismissed={() => setReleaseIntroDismissed(true)} />
               </ErrorBoundary>
             </SlideOver>
 
@@ -512,6 +577,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
         </div>
       </div>
     </RepoContext.Provider>
+    </TabLoadingContext.Provider>
     </PullRequestsContext.Provider>
     </RepoMetadataContext.Provider>
     </ClassificationContext.Provider>
@@ -519,5 +585,6 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     </SelectionContext.Provider>
     </StatusContext.Provider>
     </RepoPathContext.Provider>
+    </ActiveTabContext.Provider>
   );
 }

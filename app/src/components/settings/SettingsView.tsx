@@ -135,7 +135,8 @@ export function SettingsView() {
                 { keys: "⌘⇧U", action: "Push" },
                 { keys: "⌘⇧L", action: "Pull" },
                 { keys: "⌘⇧F", action: "Fetch" },
-                { keys: "⌘⇧R", action: "Refresh all (fetch + update panels)" },
+                { keys: "⌘R", action: "Refresh active tab" },
+                { keys: "⌘⇧R", action: "Refresh all tabs" },
               ]},
               { category: "Branches", shortcuts: [
                 { keys: "⌘⇧N", action: "New branch" },
@@ -153,6 +154,13 @@ export function SettingsView() {
                 { keys: "⌘↓", action: "Jump to bottom of history" },
                 { keys: "⇧↑ / ⇧↓", action: "Navigate commit history (global)" },
                 { keys: "↑ / ↓", action: "Navigate files or commits (when panel focused)" },
+              ]},
+              { category: "Tabs", shortcuts: [
+                { keys: "⌘T", action: "New tab" },
+                { keys: "⌘W", action: "Close tab" },
+                { keys: "⌘⇧[", action: "Previous tab" },
+                { keys: "⌘⇧]", action: "Next tab" },
+                { keys: "⌘1–⌘9", action: "Switch to tab by number" },
               ]},
               { category: "PR Editor", shortcuts: [
                 { keys: "⌘⇧M", action: "Toggle markdown cheatsheet" },

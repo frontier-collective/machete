@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { useRepoPath, useStatus, useRepoMetadata } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useRepoMetadata, useTabLoading } from "@/hooks/useRepo";
 import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -49,6 +49,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
   const { status, refreshStatus } = useStatus();
   const { theme, toggle } = useTheme();
   const { protectedBranches } = useRepoMetadata();
+  const { startLoading, stopLoading } = useTabLoading();
 
   const [pushLoading, setPushLoading] = useState(false);
   const [pullLoading, setPullLoading] = useState(false);
@@ -114,6 +115,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
   async function handlePush() {
     if (!repoPath || pushLoading) return;
     setPushLoading(true);
+    startLoading();
     try {
       await invoke("push_current_branch", { repoPath });
       refreshStatus();
@@ -121,12 +123,14 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
       console.error("Push failed:", e);
     } finally {
       setPushLoading(false);
+      stopLoading();
     }
   }
 
   async function handlePull() {
     if (!repoPath || pullLoading) return;
     setPullLoading(true);
+    startLoading();
     try {
       await invoke("pull_current_branch", { repoPath });
       refreshStatus();
@@ -134,12 +138,14 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
       console.error("Pull failed:", e);
     } finally {
       setPullLoading(false);
+      stopLoading();
     }
   }
 
   async function handleFetch() {
     if (!repoPath || fetchLoading) return;
     setFetchLoading(true);
+    startLoading();
     try {
       await invoke("fetch_remote", { repoPath });
       refreshStatus();
@@ -148,13 +154,21 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
       console.error("Fetch failed:", e);
     } finally {
       setFetchLoading(false);
+      stopLoading();
     }
   }
 
-  async function handleRefreshAll() {
-    // Fetch remote first, then broadcast so all panels refresh
+  async function handleRefresh() {
+    // Fetch remote + broadcast so this tab's panels refresh
     await handleFetch();
     emit("refresh-all");
+  }
+
+  async function handleRefreshAll() {
+    // Emit event to trigger all tabs to fetch + refresh
+    emit("refresh-all-tabs");
+    // Also refresh this tab
+    await handleRefresh();
   }
 
   async function handleStash() {
@@ -177,7 +191,8 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
       { key: "u", meta: true, shift: true, handler: handlePush },    // ⌘⇧U — Push
       { key: "l", meta: true, shift: true, handler: handlePull },    // ⌘⇧L — Pull
       { key: "f", meta: true, shift: true, handler: handleFetch },   // ⌘⇧F — Fetch
-      { key: "r", meta: true, shift: true, handler: handleRefreshAll }, // ⌘⇧R — Refresh all remote state
+      { key: "r", meta: true, handler: handleRefresh },               // ⌘R  — Refresh active tab
+      { key: "r", meta: true, shift: true, handler: handleRefreshAll }, // ⌘⇧R — Refresh all tabs
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [repoPath, pushLoading, pullLoading, fetchLoading]

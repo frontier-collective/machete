@@ -18,6 +18,8 @@ export interface TabStatusInfo {
   dirty: boolean;
   /** Has commits ahead of remote (unpushed) */
   unpushed: boolean;
+  /** A remote/expensive operation is in progress (fetch, pull, push, classification, etc.) */
+  loading?: boolean;
 }
 
 export interface TabManager {
@@ -211,7 +213,7 @@ export function useTabManager(): TabManager {
   const reportTabStatus = useCallback((tabId: string, status: TabStatusInfo) => {
     setTabStatuses((prev) => {
       const existing = prev[tabId];
-      if (existing && existing.dirty === status.dirty && existing.unpushed === status.unpushed) {
+      if (existing && existing.dirty === status.dirty && existing.unpushed === status.unpushed && existing.loading === status.loading) {
         return prev; // No change — avoid re-render
       }
       return { ...prev, [tabId]: status };

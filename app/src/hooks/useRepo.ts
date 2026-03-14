@@ -88,6 +88,18 @@ export const PullRequestsContext = createContext<PullRequestsContextValue>({
   addPr: () => {},
 });
 
+export interface TabLoadingContextValue {
+  /** Call when an async operation starts (increments counter) */
+  startLoading: () => void;
+  /** Call when an async operation ends (decrements counter) */
+  stopLoading: () => void;
+}
+
+export const TabLoadingContext = createContext<TabLoadingContextValue>({
+  startLoading: () => {},
+  stopLoading: () => {},
+});
+
 // ─── Targeted hooks (prefer these) ─────────────────────────────────
 
 export function useRepoPath() {
@@ -116,6 +128,10 @@ export function useRepoMetadata() {
 
 export function usePullRequests() {
   return useContext(PullRequestsContext);
+}
+
+export function useTabLoading() {
+  return useContext(TabLoadingContext);
 }
 
 // ─── Legacy combined context ────────────────────────────────────────

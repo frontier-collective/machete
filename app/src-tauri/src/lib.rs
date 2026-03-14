@@ -54,6 +54,7 @@ pub fn run() {
             commands::apply_stash,
             commands::drop_stash,
             commands::cherry_pick,
+            commands::health_check,
             watcher::watch_repo,
             watcher::unwatch_repo,
         ])

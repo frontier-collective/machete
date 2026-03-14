@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Plus,
   Undo2,
+  Info,
 } from "lucide-react";
 import { useRepoPath, useStatus, useClassification } from "@/hooks/useRepo";
 import type { BranchSafetyResult } from "@/types";
@@ -38,7 +39,14 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 
-export function BranchesView() {
+interface BranchesViewProps {
+  /** Whether the intro was already dismissed this session (survives sheet close/reopen) */
+  introDismissed?: boolean;
+  /** Callback to notify parent that the intro has been dismissed */
+  onIntroDismissed?: () => void;
+}
+
+export function BranchesView({ introDismissed, onIntroDismissed }: BranchesViewProps) {
   const { repoPath } = useRepoPath();
   const { refreshStatus } = useStatus();
   const { classification, classificationLoading: loading, fetchClassification } = useClassification();
@@ -57,14 +65,38 @@ export function BranchesView() {
   const [keptOpen, setKeptOpen] = useState(false);
   const [unsafeOpen, setUnsafeOpen] = useState(false);
 
-  // Auto-rescan when the view mounts (sheet opens), but only if we already have data to refresh.
-  // If no prior scan exists, show the intro/splash screen and let the user trigger it.
+  // ── Intro splash control ────────────────────────────────────────────
+  // Show intro on first open per session, unless the user checked "don't show again"
+  // or the intro was already dismissed this session (parent tracks this across sheet open/close).
+  const skipIntroKey = `machete:skipBranchIntro:${repoPath}`;
+  const [skipIntro, setSkipIntro] = useState(() => {
+    try { return localStorage.getItem(skipIntroKey) === "1"; } catch { return false; }
+  });
+  const [introVisible, setIntroVisible] = useState(!skipIntro && !introDismissed);
+
+  const handleSkipIntroChange = (checked: boolean) => {
+    setSkipIntro(checked);
+    try {
+      if (checked) localStorage.setItem(skipIntroKey, "1");
+      else localStorage.removeItem(skipIntroKey);
+    } catch { /* ignore */ }
+  };
+
+  const dismissIntro = () => {
+    setIntroVisible(false);
+    onIntroDismissed?.();
+    fetchClassification();
+  };
+
+  // Auto-rescan when the view mounts (sheet opens), but only when the intro is NOT shown.
+  // If skipIntro is true (intro hidden), auto-trigger the scan regardless of cached data.
+  // If intro is visible, wait for the user to click "Scan Branches".
   const hasAutoScanned = useRef(false);
   useEffect(() => {
-    if (!repoPath || hasAutoScanned.current || !classification) return;
+    if (!repoPath || hasAutoScanned.current || introVisible) return;
     hasAutoScanned.current = true;
     fetchClassification();
-  }, [repoPath, classification, fetchClassification]);
+  }, [repoPath, introVisible, fetchClassification]);
 
   const toggleBranch = (branch: string) => {
     setSelected((prev) => {
@@ -145,7 +177,7 @@ export function BranchesView() {
 
   // ─── Pre-scan intro ────────────────────────────────────────────────
 
-  if (!classification && !loading) {
+  if (introVisible) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-6 px-6 select-none">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10">
@@ -174,7 +206,7 @@ export function BranchesView() {
         <TooltipProvider delayDuration={400}>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button onClick={fetchClassification} className="mt-2">
+              <Button onClick={dismissIntro} className="mt-2">
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Scan Branches
               </Button>
@@ -182,6 +214,13 @@ export function BranchesView() {
             <TooltipContent>Analyze branches for safe deletion</TooltipContent>
           </Tooltip>
         </TooltipProvider>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+          <Checkbox
+            checked={skipIntro}
+            onCheckedChange={(checked) => handleSkipIntroChange(!!checked)}
+          />
+          Don&apos;t show this again
+        </label>
       </div>
     );
   }
@@ -213,14 +252,24 @@ export function BranchesView() {
             {classification.unsafe.length > 0 && (
               <Badge variant="unsafe">{classification.unsafe.length} unsafe</Badge>
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={fetchClassification} disabled={loading}>
-                  {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Re-scan branches</TooltipContent>
-            </Tooltip>
+            <div className="flex items-center gap-1 ml-auto">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setIntroVisible(true)}>
+                    <Info className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>About Branch Pruning</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={fetchClassification} disabled={loading}>
+                    {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Re-scan branches</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
 
           {/* Error / success banners */}

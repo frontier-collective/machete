@@ -1586,3 +1586,124 @@ pub async fn cherry_pick(repo_path: String, commit_hash: String) -> Result<Value
         }
     }).await
 }
+
+// ─── Health Check ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn health_check() -> Result<Value, String> {
+    off_main(move || {
+        let path = enriched_path();
+
+        // 1. Git
+        let git = git_binary();
+        let git_version = Command::new(git)
+            .args(["--version"])
+            .env("PATH", &path)
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    // "git version 2.43.0" → "2.43.0"
+                    Some(v.strip_prefix("git version ").unwrap_or(&v).to_string())
+                } else {
+                    None
+                }
+            });
+
+        // 2. GitHub CLI (gh) — installed?
+        let gh_version = Command::new("gh")
+            .args(["--version"])
+            .env("PATH", &path)
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    // First line: "gh version 2.43.0 (2024-01-15)"
+                    let first_line = v.lines().next().unwrap_or(&v);
+                    Some(
+                        first_line
+                            .strip_prefix("gh version ")
+                            .unwrap_or(first_line)
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            });
+
+        // 3. GitHub CLI — authenticated?
+        let gh_authed = if gh_version.is_some() {
+            Command::new("gh")
+                .args(["auth", "status"])
+                .env("PATH", &path)
+                .output()
+                .ok()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        // 4. Machete CLI
+        let (machete_prog, machete_prefix) = machete_command();
+        let machete_version = {
+            let mut args = machete_prefix.clone();
+            args.push("--version".to_string());
+            Command::new(&machete_prog)
+                .args(&args)
+                .env("PATH", &path)
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                        if v.is_empty() {
+                            None
+                        } else {
+                            Some(v)
+                        }
+                    } else {
+                        None
+                    }
+                })
+        };
+
+        // 5. Node.js
+        let node_version = Command::new("node")
+            .args(["--version"])
+            .env("PATH", &path)
+            .output()
+            .ok()
+            .and_then(|o| {
+                if o.status.success() {
+                    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    Some(v.strip_prefix('v').unwrap_or(&v).to_string())
+                } else {
+                    None
+                }
+            });
+
+        Ok(serde_json::json!({
+            "git": {
+                "installed": git_version.is_some(),
+                "version": git_version,
+            },
+            "gh": {
+                "installed": gh_version.is_some(),
+                "version": gh_version,
+                "authenticated": gh_authed,
+            },
+            "machete": {
+                "installed": machete_version.is_some(),
+                "version": machete_version,
+            },
+            "node": {
+                "installed": node_version.is_some(),
+                "version": node_version,
+            },
+        }))
+    })
+    .await
+}
