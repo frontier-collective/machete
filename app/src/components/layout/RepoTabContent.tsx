@@ -225,6 +225,67 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     }
   }, [repoPath, status, isActive, fetchClassification]);
 
+  // ── Optimistic classification update on branch change ──────────
+  // When the user checks out a different branch, immediately swap the
+  // "current" label in the classification so the UI reflects the change
+  // without waiting for a full rescan. Then trigger a background refresh.
+  const lastClassifiedBranch = useRef<string | null>(null);
+  useEffect(() => {
+    const branch = status?.branch ?? null;
+    if (!branch || !classification) {
+      lastClassifiedBranch.current = branch;
+      return;
+    }
+    const prevBranch = lastClassifiedBranch.current;
+    lastClassifiedBranch.current = branch;
+
+    // Only act when the branch actually changed
+    if (!prevBranch || prevBranch === branch) return;
+
+    // Optimistic update: swap current branch in the classification.
+    // Update entries in-place to preserve the original ordering.
+    setClassification((prev) => {
+      if (!prev) return prev;
+
+      const isProtected = prev.protected.includes(branch);
+      const wasInKept = prev.kept.some(({ name }) => name === branch);
+      const wasInSafe = prev.safe.some((r) => r.branch === branch);
+      const wasInUnsafe = prev.unsafe.some((r) => r.branch === branch);
+
+      // Update kept: change old current→"on remote", change new current→"current" (in-place)
+      let newKept = prev.kept.map((entry) => {
+        if (entry.name === prevBranch && entry.reason === "current") {
+          return { ...entry, reason: "on remote" };
+        }
+        if (entry.name === branch) {
+          return { ...entry, reason: "current" };
+        }
+        return entry;
+      });
+
+      // If the new branch wasn't already in kept (it was in safe/unsafe), insert it
+      // right after the old current branch to maintain visual stability
+      if (!wasInKept && !isProtected) {
+        const prevIdx = newKept.findIndex(({ name }) => name === prevBranch);
+        const newEntry = { name: branch, reason: "current" as const };
+        if (prevIdx >= 0) {
+          newKept = [...newKept.slice(0, prevIdx + 1), newEntry, ...newKept.slice(prevIdx + 1)];
+        } else {
+          newKept = [newEntry, ...newKept];
+        }
+      }
+
+      // Remove the new branch from safe/unsafe if it was there
+      const newSafe = wasInSafe ? prev.safe.filter((r) => r.branch !== branch) : prev.safe;
+      const newUnsafe = wasInUnsafe ? prev.unsafe.filter((r) => r.branch !== branch) : prev.unsafe;
+
+      return { ...prev, currentBranch: branch, kept: newKept, safe: newSafe, unsafe: newUnsafe };
+    });
+
+    // Background refresh to get the real classification
+    fetchClassification();
+  }, [status?.branch, classification, fetchClassification]);
+
   // ── Report tab status to parent (for dot indicators) ─────────────
   useEffect(() => {
     if (!onStatusReport || !status) return;
