@@ -423,16 +423,16 @@ Focus: Transform from a single-repo app into a multi-repo workspace tool with ta
 
 #### Checklist
 
-- [ ] Tab bar component (replaces repo selector in toolbar)
-- [ ] Per-tab isolated state (each tab has its own context providers)
-- [ ] Tab lifecycle: open, close, reorder, persist
-- [ ] Recent repos list (new tab landing page)
+- [x] Tab bar component (replaces repo selector in toolbar)
+- [x] Per-tab isolated state (each tab has its own context providers)
+- [x] Tab lifecycle: open, close, reorder, persist
+- [x] Recent repos list (new tab landing page)
 - [ ] Quick switcher dialog (`⌘O`)
 - [ ] `machete open .` CLI command (deep link)
 - [ ] Named workspaces (save/restore named sets of repos)
 - [ ] Cross-repo dashboard tab
-- [ ] Tab context menu (close, close others, close all, copy path)
-- [ ] Drag-and-drop tab reordering
+- [x] Tab context menu (close, close others, close all, copy path)
+- [x] Drag-and-drop tab reordering
 
 ---
 
@@ -789,9 +789,14 @@ Each step is independently shippable and useful.
 - [x] Keyboard shortcuts (comprehensive: push/pull/fetch/refresh/panels/branch ops)
 - [x] Settings UI (appearance, protected branches, config viewer with sources)
 - [x] App version footer in sidebar
+- [x] `MACH-0009` Auto-update mechanism (Tauri updater plugin)
+- [x] Auto-fetch on window re-focus (silently re-fetches remotes after 2+ minutes of inactivity)
+- [x] Tab status indicators (dirty/unpushed state on tab badges)
+- [x] PR indicators on branch list (surfaces open PRs via `gh` CLI)
+- [x] About dialog with health checks and manual update check
+- [x] "Check for Updates…" system menu item
 - [ ] Settings: editable config values (not just read-only)
 - [ ] Settings: keyboard shortcuts reference/customization section
-- [ ] `MACH-0009` Auto-update mechanism (Tauri updater plugin)
 - [ ] Plugin system for custom workflows
 - [ ] Notification toasts for async operations (push/pull/fetch success/failure)
 

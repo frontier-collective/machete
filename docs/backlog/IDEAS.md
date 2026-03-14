@@ -38,7 +38,6 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 ## GUI
 
 - [ ] `MACH-0007` Machete GUI — cross-platform graphical layer over machete CLI (Tauri 2.0 + Svelte/React)
-- [ ] `MACH-0009` Auto-updater — detect and install app updates from GitHub Releases (Tauri updater plugin)
 
 ## Infrastructure
 
@@ -59,3 +58,4 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 - [x] `MACH-0005` (2026-03-13) Whetstone-aware commit — separate `.whetstone/` files in staging prompt, diff stats display
 - [x] `MACH-0006` (2026-03-13) Interactive version selection — prompt for patch/minor/major with version previews
 - [x] `MACH-0008` (2026-03-13) Add `machete pr` — AI-powered pull request creation
+- [x] `MACH-0009` (2026-03-15) Auto-updater — detect and install app updates from GitHub Releases (Tauri updater plugin)

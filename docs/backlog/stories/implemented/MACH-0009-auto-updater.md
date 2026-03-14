@@ -1,7 +1,7 @@
 ---
 id: MACH-0009
 title: Auto-updater — detect and install app updates from GitHub Releases
-status: ready
+status: done
 priority: high
 created: 2026-03-15
 ---
