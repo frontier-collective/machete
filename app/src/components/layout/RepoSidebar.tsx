@@ -18,9 +18,10 @@ import {
   Archive,
   Play,
   Trash2,
+  GitPullRequest,
 } from "lucide-react";
 
-import { useRepoPath, useStatus, useSelection, useLayout, useClassification } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useSelection, useLayout, useClassification, usePullRequests } from "@/hooks/useRepo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,7 +52,7 @@ import { Label } from "@/components/ui/label";
 import { CreateBranchDialog } from "@/components/branches/CreateBranchDialog";
 import { DeleteBranchDialog } from "@/components/branches/DeleteBranchDialog";
 import { MergeRebaseDialog, type MergeMode } from "@/components/branches/MergeRebaseDialog";
-import type { BranchInfo, RemoteInfo, ConfigEntry, StashEntry } from "@/types";
+import type { BranchInfo, RemoteInfo, ConfigEntry, StashEntry, GithubPr } from "@/types";
 
 export function RepoSidebar({
   width,
@@ -86,6 +87,9 @@ export function RepoSidebar({
 
   // Branch safety — shared context (synced with BranchesView)
   const { classification: safety, classificationLoading: safetyLoading, fetchClassification: handleAnalyzeSafety } = useClassification();
+
+  // Pull request data — shared context
+  const { prByBranch } = usePullRequests();
 
   // Create branch dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -370,6 +374,7 @@ export function RepoSidebar({
                   isBranchProtected={isBranchProtected}
                   isDirty={!status?.isClean}
                   currentBranch={status?.branch ?? null}
+                  prByBranch={prByBranch}
                   onSelect={(name) => setSelectedBranch(name)}
                   onCheckout={handleCheckout}
                   onCreateBranch={handleCreateBranch}
@@ -694,6 +699,7 @@ function BranchTreeView({
   isBranchProtected,
   isDirty,
   currentBranch,
+  prByBranch,
   onSelect,
   onCheckout,
   onCreateBranch,
@@ -711,6 +717,7 @@ function BranchTreeView({
   isBranchProtected: (name: string) => boolean;
   isDirty: boolean;
   currentBranch: string | null;
+  prByBranch: Map<string, GithubPr>;
   onSelect: (name: string) => void;
   onCheckout: (name: string) => void;
   onCreateBranch: (sourceBranch: string) => void;
@@ -737,6 +744,7 @@ function BranchTreeView({
           const isProtected = isBranchProtected(b.name);
           // Red dot if this is the current branch and there are uncommitted changes
           const showDirtyDot = b.current && isDirty;
+          const pr = prByBranch.get(b.name);
 
           return (
             <ContextMenu key={b.name}>
@@ -774,6 +782,16 @@ function BranchTreeView({
                   {/* Right side: loading spinner, padlock, local-only, or ahead/behind */}
                   <span className="flex items-center gap-1.5 shrink-0 ml-1">
                     {isChecking && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {pr && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <GitPullRequest className={`h-3 w-3 ${pr.isDraft ? "text-muted-foreground/60" : "text-green-500"}`} />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="text-xs">
+                          {pr.isDraft ? "Draft PR" : "Open PR"} #{pr.number}: {pr.title}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                     {isProtected && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -885,6 +903,7 @@ function BranchTreeView({
                 isBranchProtected={isBranchProtected}
                 isDirty={isDirty}
                 currentBranch={currentBranch}
+                prByBranch={prByBranch}
                 onSelect={onSelect}
                 onCheckout={onCheckout}
                 onCreateBranch={onCreateBranch}

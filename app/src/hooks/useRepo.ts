@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { RepoStatus, PruneClassification } from "@/types";
+import type { RepoStatus, PruneClassification, GithubPr } from "@/types";
 import type { RepoLayout } from "@/hooks/useRepoLayout";
 
 // ─── Split contexts ─────────────────────────────────────────────────
@@ -41,6 +41,11 @@ export interface RepoMetadataContextValue {
   protectedBranches: string[];
 }
 
+export interface PullRequestsContextValue {
+  /** Map from branch name → open PR (includes drafts). Only OPEN/DRAFT PRs. */
+  prByBranch: Map<string, GithubPr>;
+}
+
 export const RepoPathContext = createContext<RepoPathContextValue>({
   repoPath: null,
   setRepoPath: () => {},
@@ -76,6 +81,10 @@ export const RepoMetadataContext = createContext<RepoMetadataContextValue>({
   protectedBranches: ["main", "master", "develop"],
 });
 
+export const PullRequestsContext = createContext<PullRequestsContextValue>({
+  prByBranch: new Map(),
+});
+
 // ─── Targeted hooks (prefer these) ─────────────────────────────────
 
 export function useRepoPath() {
@@ -100,6 +109,10 @@ export function useClassification() {
 
 export function useRepoMetadata() {
   return useContext(RepoMetadataContext);
+}
+
+export function usePullRequests() {
+  return useContext(PullRequestsContext);
 }
 
 // ─── Legacy combined context ────────────────────────────────────────

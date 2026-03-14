@@ -21,9 +21,10 @@ import {
   LayoutContext,
   ClassificationContext,
   RepoMetadataContext,
+  PullRequestsContext,
 } from "@/hooks/useRepo";
 import { useRepoLayout } from "@/hooks/useRepoLayout";
-import type { RepoStatus, PruneClassification, ConfigEntry } from "@/types";
+import type { RepoStatus, PruneClassification, ConfigEntry, GithubPr } from "@/types";
 import type { TabStatusInfo } from "@/hooks/useTabManager";
 import { X } from "lucide-react";
 
@@ -74,6 +75,9 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
   // Repo metadata: default branch + protected branches (loaded once per repo)
   const [defaultBranch, setDefaultBranch] = useState<string | null>(null);
   const [protectedBranches, setProtectedBranches] = useState<string[]>(["main", "master", "develop"]);
+
+  // Pull requests — map from branch name → open/draft PR
+  const [prByBranch, setPrByBranch] = useState<Map<string, GithubPr>>(new Map());
 
   // Toolbar slide-over state
   const [activeAction, setActiveAction] = useState<ToolbarAction>(null);
@@ -168,6 +172,37 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
       );
     }).catch(() => {});
   }, [repoPath]);
+
+  // Fetch open/draft PRs for branch indicators (non-critical, fire-and-forget)
+  const fetchPrs = useCallback(async () => {
+    if (!repoPath) return;
+    try {
+      const prs = await invoke<GithubPr[]>("list_prs", { repoPath });
+      const map = new Map<string, GithubPr>();
+      for (const pr of prs) {
+        // Only include open PRs (OPEN state, which includes drafts)
+        if (pr.state === "OPEN") {
+          map.set(pr.headRefName, pr);
+        }
+      }
+      setPrByBranch(map);
+    } catch {
+      // gh CLI not available or not in a GitHub repo — silently ignore
+    }
+  }, [repoPath]);
+
+  // Fetch PRs once on mount, and again when remote is fetched
+  const prsFetched = useRef(false);
+  useEffect(() => {
+    if (!repoPath || !status || prsFetched.current) return;
+    prsFetched.current = true;
+    fetchPrs();
+  }, [repoPath, status, fetchPrs]);
+
+  useEffect(() => {
+    const unlisten = listen("remote-fetched", () => { fetchPrs(); });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [fetchPrs]);
 
   // Watch repo for filesystem changes — only when active
   useEffect(() => {
@@ -322,6 +357,10 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     () => ({ defaultBranch, protectedBranches }),
     [defaultBranch, protectedBranches]
   );
+  const pullRequestsCtx = useMemo(
+    () => ({ prByBranch }),
+    [prByBranch]
+  );
   const combinedCtx = useMemo(
     () => ({ ...repoPathCtx, ...statusCtx, ...selectionCtx, ...layoutCtx }),
     [repoPathCtx, statusCtx, selectionCtx, layoutCtx]
@@ -334,6 +373,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     <LayoutContext.Provider value={layoutCtx}>
     <ClassificationContext.Provider value={classificationCtx}>
     <RepoMetadataContext.Provider value={repoMetadataCtx}>
+    <PullRequestsContext.Provider value={pullRequestsCtx}>
     <RepoContext.Provider value={combinedCtx}>
       <div className={`flex h-full w-full flex-col overflow-hidden ${isActive ? "" : "hidden"}`}>
         {/* Toolbar — full width, acts as custom titlebar */}
@@ -461,6 +501,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
         </div>
       </div>
     </RepoContext.Provider>
+    </PullRequestsContext.Provider>
     </RepoMetadataContext.Provider>
     </ClassificationContext.Provider>
     </LayoutContext.Provider>
