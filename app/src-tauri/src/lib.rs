@@ -14,13 +14,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Mutex::new(watcher::WatcherState::default()))
         .setup(|app| {
             // Custom "About" menu item that emits a frontend event
             let about = MenuItemBuilder::with_id("about", "About Machete").build(app)?;
+            let check_updates = MenuItemBuilder::with_id("check-updates", "Check for Updates…").build(app)?;
 
             let app_submenu = SubmenuBuilder::new(app, "Machete")
                 .item(&about)
+                .item(&check_updates)
                 .separator()
                 .item(&PredefinedMenuItem::hide(app, Some("Hide Machete"))?)
                 .item(&PredefinedMenuItem::hide_others(app, Some("Hide Others"))?)
@@ -60,6 +64,8 @@ pub fn run() {
             app.on_menu_event(move |_app, event| {
                 if event.id().0 == "about" {
                     let _ = app_handle.emit("show-about", ());
+                } else if event.id().0 == "check-updates" {
+                    let _ = app_handle.emit("check-for-updates", ());
                 }
             });
 

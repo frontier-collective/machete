@@ -122,7 +122,7 @@ cd app && npm install @tauri-apps/plugin-updater @tauri-apps/plugin-process
 ```json
 {
   "bundle": {
-    "createUpdaterArtifacts": "v2Compatible"
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
