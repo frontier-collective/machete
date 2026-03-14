@@ -191,6 +191,17 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     }
   }, [repoPath]);
 
+  // Optimistically add a newly-created PR to the sidebar indicators, then refresh in background
+  const addPr = useCallback((pr: GithubPr) => {
+    setPrByBranch((prev) => {
+      const next = new Map(prev);
+      next.set(pr.headRefName, pr);
+      return next;
+    });
+    // Background refresh to get the real PR data from GitHub
+    fetchPrs();
+  }, [fetchPrs]);
+
   // Fetch PRs once on mount, and again when remote is fetched
   const prsFetched = useRef(false);
   useEffect(() => {
@@ -358,8 +369,8 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     [defaultBranch, protectedBranches]
   );
   const pullRequestsCtx = useMemo(
-    () => ({ prByBranch }),
-    [prByBranch]
+    () => ({ prByBranch, addPr }),
+    [prByBranch, addPr]
   );
   const combinedCtx = useMemo(
     () => ({ ...repoPathCtx, ...statusCtx, ...selectionCtx, ...layoutCtx }),

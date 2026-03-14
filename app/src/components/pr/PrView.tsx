@@ -25,7 +25,7 @@ import {
   HelpCircle,
   X,
 } from "lucide-react";
-import { useRepoPath, useStatus, useRepoMetadata } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useRepoMetadata, usePullRequests } from "@/hooks/useRepo";
 import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import type { PrContext, GithubPr, RemoteInfo } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,7 @@ export function PrView() {
   const { repoPath } = useRepoPath();
   const { status } = useStatus();
   const { defaultBranch, protectedBranches: metadataProtected } = useRepoMetadata();
+  const { addPr } = usePullRequests();
 
   // View navigation — always start on intro
   const cached = repoPath ? prCache[repoPath] : undefined;
@@ -253,6 +254,27 @@ export function PrView() {
         draft,
       });
       setPrUrl(url);
+
+      // Optimistically add to sidebar PR indicators
+      const prNumber = parseInt(url.split("/").pop() || "0", 10);
+      addPr({
+        number: prNumber,
+        title,
+        state: "OPEN",
+        isDraft: draft,
+        headRefName: status?.branch ?? "",
+        baseRefName: base,
+        author: { login: "" },
+        url,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        additions: 0,
+        deletions: 0,
+        changedFiles: 0,
+        reviewDecision: "",
+        labels: [],
+        comments: [],
+      });
     } catch (e) {
       setCreateError(String(e));
     } finally {

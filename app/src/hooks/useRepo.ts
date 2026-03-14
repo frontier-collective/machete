@@ -44,6 +44,8 @@ export interface RepoMetadataContextValue {
 export interface PullRequestsContextValue {
   /** Map from branch name → open PR (includes drafts). Only OPEN/DRAFT PRs. */
   prByBranch: Map<string, GithubPr>;
+  /** Optimistically add a newly-created PR to the map (and trigger background refresh). */
+  addPr: (pr: GithubPr) => void;
 }
 
 export const RepoPathContext = createContext<RepoPathContextValue>({
@@ -83,6 +85,7 @@ export const RepoMetadataContext = createContext<RepoMetadataContextValue>({
 
 export const PullRequestsContext = createContext<PullRequestsContextValue>({
   prByBranch: new Map(),
+  addPr: () => {},
 });
 
 // ─── Targeted hooks (prefer these) ─────────────────────────────────

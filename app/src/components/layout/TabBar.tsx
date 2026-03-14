@@ -247,13 +247,22 @@ export function TabBar({ tabManager }: TabBarProps) {
                   isActive
                     ? "bg-background text-foreground"
                     : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-                } ${isDragging ? "opacity-60 z-50 shadow-lg" : ""} ${isDropTarget ? "ring-2 ring-inset ring-brand" : ""}`}
+                } ${isDragging ? "opacity-60 z-50 shadow-lg" : ""}`}
                 style={isDragging ? { transform: `translateX(${dragDeltaX}px)`, transition: "none" } : undefined}
                 onClick={() => { if (!draggingTabId && !isEditing) activateTab(tab.id); }}
                 onContextMenu={(e) => handleContextMenu(e, tab.id)}
                 onPointerDown={(e) => handlePointerDown(e, tab.id, index)}
                 title={tab.repoPath}
               >
+                {/* Drop insertion indicator — vertical line on the edge closest to the drag source */}
+                {isDropTarget && draggingTabId && (() => {
+                  const fromIdx = tabs.findIndex((t) => t.id === draggingTabId);
+                  const side = index < fromIdx ? "left" : "right";
+                  return (
+                    <div className={`absolute top-1 bottom-1 w-0.5 bg-brand rounded-full z-10 ${side === "left" ? "-left-px" : "-right-px"}`} />
+                  );
+                })()}
+
                 {/* Active indicator */}
                 {isActive && (
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand" />
