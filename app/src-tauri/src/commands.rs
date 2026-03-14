@@ -265,17 +265,19 @@ pub async fn get_commit_context(repo_path: String) -> Result<Value, String> {
             .unwrap_or_default();
         let recent_commits: Vec<&str> = recent.lines().collect();
 
-        // Staged files with diff stats (-M10% enables rename detection with low threshold)
-        let staged_numstat = run_git(&repo_path, &["diff", "--cached", "-M10%", "--numstat"])
+        // Staged files with diff stats
+        // -M10%: rename detection with low similarity threshold
+        // -C -C: copy detection that checks ALL files (not just modified) as copy sources
+        let staged_numstat = run_git(&repo_path, &["diff", "--cached", "-M10%", "-C", "-C", "--numstat"])
             .unwrap_or_default();
-        let staged_namestatus = run_git(&repo_path, &["diff", "--cached", "-M10%", "--name-status"])
+        let staged_namestatus = run_git(&repo_path, &["diff", "--cached", "-M10%", "-C", "-C", "--name-status"])
             .unwrap_or_default();
         let staged: Vec<Value> = parse_numstat_with_status(&staged_numstat, &staged_namestatus);
 
-        // Unstaged tracked files with diff stats (-M10% enables rename detection with low threshold)
-        let unstaged_numstat = run_git(&repo_path, &["diff", "-M10%", "--numstat"])
+        // Unstaged tracked files with diff stats
+        let unstaged_numstat = run_git(&repo_path, &["diff", "-M10%", "-C", "-C", "--numstat"])
             .unwrap_or_default();
-        let unstaged_namestatus = run_git(&repo_path, &["diff", "-M10%", "--name-status"])
+        let unstaged_namestatus = run_git(&repo_path, &["diff", "-M10%", "-C", "-C", "--name-status"])
             .unwrap_or_default();
         let mut unstaged: Vec<Value> = parse_numstat_with_status(&unstaged_numstat, &unstaged_namestatus);
 
@@ -522,8 +524,8 @@ pub async fn get_file_diff(
                 let new_file = parts[1].trim();
                 eprintln!("[machete] get_file_diff: staged rename detected, old='{}', new='{}'", old_file, new_file);
 
-                // Run full unfiltered diff with rename detection
-                let full_diff = run_git(&repo_path, &["diff", "--cached", "-M10%", &ctx]);
+                // Run full unfiltered diff with rename+copy detection
+                let full_diff = run_git(&repo_path, &["diff", "--cached", "-M10%", "-C", "-C", &ctx]);
                 if let Ok(ref full) = full_diff {
                     if let Some(section) = extract_diff_section(full, old_file, new_file) {
                         return Ok(section);
@@ -533,7 +535,7 @@ pub async fn get_file_diff(
                 // Fallback: just diff the new file without rename detection
                 return run_git(&repo_path, &["diff", "--cached", &ctx, "--", new_file]);
             }
-            let result = run_git(&repo_path, &["diff", "--cached", "-M", &ctx, "--", &file])?;
+            let result = run_git(&repo_path, &["diff", "--cached", "-M10%", "-C", "-C", &ctx, "--", &file])?;
             if result.trim().is_empty() {
                 // Might be a newly staged untracked file — try diff against empty tree
                 let empty_tree = "4b825dc642cb6eb9a060e54bf899d15f3f9382e1";
@@ -553,8 +555,8 @@ pub async fn get_file_diff(
                 let new_file = parts[1].trim();
                 eprintln!("[machete] get_file_diff: unstaged rename detected, old='{}', new='{}'", old_file, new_file);
 
-                // Run full unfiltered diff with rename detection
-                let full_diff = run_git(&repo_path, &["diff", "-M10%", &ctx]);
+                // Run full unfiltered diff with rename+copy detection
+                let full_diff = run_git(&repo_path, &["diff", "-M10%", "-C", "-C", &ctx]);
                 if let Ok(ref full) = full_diff {
                     if let Some(section) = extract_diff_section(full, old_file, new_file) {
                         return Ok(section);
@@ -564,7 +566,7 @@ pub async fn get_file_diff(
                 // Fallback: just diff the new file without rename detection
                 return run_git(&repo_path, &["diff", &ctx, "--", new_file]);
             }
-            let result = run_git(&repo_path, &["diff", "-M", &ctx, "--", &file])?;
+            let result = run_git(&repo_path, &["diff", "-M10%", "-C", "-C", &ctx, "--", &file])?;
             if result.trim().is_empty() {
                 // Check if this is an untracked file — read its contents directly
                 let file_path = std::path::Path::new(&repo_path).join(&file);

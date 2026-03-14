@@ -244,57 +244,41 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
 // ─── File status icon (A/M/D/R) ─────────────────────────────────────
 
 function FileStatusIcon({ status }: { status?: string }) {
+  // Full set of git status codes:
+  // A=Added, C=Copied, D=Deleted, M=Modified, R=Renamed,
+  // T=Type changed, U=Unmerged (conflict), B=Broken, X=Unknown, ?=Untracked
   const labels: Record<string, string> = {
     A: "Added",
     D: "Deleted",
     R: "Renamed",
     C: "Copied",
     M: "Modified",
+    T: "Type changed",
+    U: "Conflict",
+    B: "Broken",
     "?": "Untracked",
   };
   const label = labels[status ?? "M"] ?? "Modified";
 
-  const badge = (() => {
-    switch (status) {
-      case "A":
-        return (
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-green-600 dark:text-green-400 bg-green-500/15 shrink-0">
-            A
-          </span>
-        );
-      case "D":
-        return (
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-red-600 dark:text-red-400 bg-red-500/15 shrink-0">
-            D
-          </span>
-        );
-      case "R":
-        return (
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-purple-600 dark:text-purple-400 bg-purple-500/15 shrink-0">
-            R
-          </span>
-        );
-      case "C":
-        return (
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-500/15 shrink-0">
-            C
-          </span>
-        );
-      case "?":
-        return (
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/15 shrink-0">
-            U
-          </span>
-        );
-      case "M":
-      default:
-        return (
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/15 shrink-0">
-            M
-          </span>
-        );
-    }
-  })();
+  // Map status to display letter + color
+  const config: Record<string, { letter: string; color: string }> = {
+    A: { letter: "A", color: "text-green-600 dark:text-green-400 bg-green-500/15" },
+    D: { letter: "D", color: "text-red-600 dark:text-red-400 bg-red-500/15" },
+    R: { letter: "R", color: "text-purple-600 dark:text-purple-400 bg-purple-500/15" },
+    C: { letter: "C", color: "text-blue-600 dark:text-blue-400 bg-blue-500/15" },
+    M: { letter: "M", color: "text-amber-600 dark:text-amber-400 bg-amber-500/15" },
+    T: { letter: "T", color: "text-orange-600 dark:text-orange-400 bg-orange-500/15" },
+    U: { letter: "!", color: "text-rose-600 dark:text-rose-400 bg-rose-500/15" },
+    B: { letter: "B", color: "text-red-600 dark:text-red-400 bg-red-500/15" },
+    "?": { letter: "U", color: "text-sky-600 dark:text-sky-400 bg-sky-500/15" },
+  };
+  const { letter, color } = config[status ?? "M"] ?? config["M"];
+
+  const badge = (
+    <span className={`inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold shrink-0 ${color}`}>
+      {letter}
+    </span>
+  );
 
   return (
     <Tooltip>
@@ -1081,6 +1065,10 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
     );
   }
   if (status === "no-hunks") {
+    // Check if this is a rename/copy with no content changes
+    const isCopy = fileInfo?.status === "C";
+    const isRename = fileInfo?.status === "R" || fileInfo?.file?.includes(" → ");
+    const label = isCopy ? "File copied — no content changes" : isRename ? "File renamed — no content changes" : "Empty file";
     return (
       <pre className="text-xs leading-relaxed">
         <code>
@@ -1090,7 +1078,7 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
             </span>
             <span className="inline-block w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50" />
             <span className="flex-1 whitespace-pre-wrap break-all px-2 text-muted-foreground/50 italic">
-              Empty file
+              {label}
             </span>
           </div>
         </code>
