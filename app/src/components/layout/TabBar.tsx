@@ -9,10 +9,15 @@ interface TabBarProps {
 }
 
 export function TabBar({ tabManager }: TabBarProps) {
-  const { tabs, activeTabId, openTab, closeTab, closeOtherTabs, closeAllTabs, activateTab, moveTab } = tabManager;
+  const { tabs, activeTabId, tabStatuses, openTab, closeTab, closeOtherTabs, closeAllTabs, activateTab, moveTab, renameTab } = tabManager;
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+
+  // Inline rename
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   // Pointer-based drag — all mutable state in a single ref to avoid stale closures
   const dragRef = useRef<{
@@ -41,6 +46,14 @@ export function TabBar({ tabManager }: TabBarProps) {
     return () => window.removeEventListener("click", handler);
   }, [contextMenu]);
 
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingTabId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingTabId]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, tabId });
@@ -57,6 +70,36 @@ export function TabBar({ tabManager }: TabBarProps) {
     e.stopPropagation();
     closeTab(tabId);
   }, [closeTab]);
+
+  // ── Inline rename handlers ────────────────────────────────────────
+  const startRename = useCallback((tabId: string) => {
+    const tab = tabsRef.current.find((t) => t.id === tabId);
+    if (!tab) return;
+    setEditingTabId(tabId);
+    setEditValue(tab.customLabel || repoName(tab.repoPath));
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (!editingTabId) return;
+    const trimmed = editValue.trim();
+    const tab = tabsRef.current.find((t) => t.id === editingTabId);
+    // If the value matches the folder name or is empty, clear the custom label
+    if (!trimmed || (tab && trimmed === repoName(tab.repoPath))) {
+      renameTab(editingTabId, "");
+    } else {
+      renameTab(editingTabId, trimmed);
+    }
+    setEditingTabId(null);
+  }, [editingTabId, editValue, renameTab]);
+
+  const cancelRename = useCallback(() => {
+    setEditingTabId(null);
+  }, []);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    startRename(tabId);
+  }, [startRename]);
 
   // ── Compute drop target from cursor position ─────────────────────
   function calcDropTarget(ds: NonNullable<typeof dragRef.current>, clientX: number): number {
@@ -84,6 +127,7 @@ export function TabBar({ tabManager }: TabBarProps) {
   const handlePointerDown = useCallback((e: React.PointerEvent, tabId: string, index: number) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest("input")) return;
 
     // Snapshot all tab rects
     const currentTabs = tabsRef.current;
@@ -167,6 +211,12 @@ export function TabBar({ tabManager }: TabBarProps) {
     setContextMenu(null);
   }, [contextMenu, tabs, moveTab]);
 
+  const handleRenameFromMenu = useCallback(() => {
+    if (!contextMenu) return;
+    startRename(contextMenu.tabId);
+    setContextMenu(null);
+  }, [contextMenu, startRename]);
+
   if (tabs.length === 0) return null;
 
   return (
@@ -185,6 +235,9 @@ export function TabBar({ tabManager }: TabBarProps) {
             const isActive = tab.id === activeTabId;
             const isDragging = draggingTabId === tab.id;
             const isDropTarget = dropTargetIndex === index && !isDragging;
+            const isEditing = editingTabId === tab.id;
+            const tabStatus = tabStatuses[tab.id];
+            const displayName = tab.customLabel || repoName(tab.repoPath);
 
             return (
               <div
@@ -196,7 +249,7 @@ export function TabBar({ tabManager }: TabBarProps) {
                     : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                 } ${isDragging ? "opacity-60 z-50 shadow-lg" : ""} ${isDropTarget ? "ring-2 ring-inset ring-brand" : ""}`}
                 style={isDragging ? { transform: `translateX(${dragDeltaX}px)`, transition: "none" } : undefined}
-                onClick={() => { if (!draggingTabId) activateTab(tab.id); }}
+                onClick={() => { if (!draggingTabId && !isEditing) activateTab(tab.id); }}
                 onContextMenu={(e) => handleContextMenu(e, tab.id)}
                 onPointerDown={(e) => handlePointerDown(e, tab.id, index)}
                 title={tab.repoPath}
@@ -206,9 +259,35 @@ export function TabBar({ tabManager }: TabBarProps) {
                   <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand" />
                 )}
 
-                <span className="truncate flex-1 font-medium">
-                  {repoName(tab.repoPath)}
-                </span>
+                {/* Status dot */}
+                {tabStatus?.dirty && (
+                  <div className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" title="Uncommitted changes" />
+                )}
+                {tabStatus && !tabStatus.dirty && tabStatus.unpushed && (
+                  <div className="h-1.5 w-1.5 rounded-full bg-orange-500 shrink-0" title="Unpushed commits" />
+                )}
+
+                {isEditing ? (
+                  <input
+                    ref={editInputRef}
+                    className="truncate flex-1 font-medium bg-transparent border-b border-brand outline-none text-xs px-0 py-0 min-w-0"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename();
+                      if (e.key === "Escape") cancelRename();
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span
+                    className="truncate flex-1 font-medium"
+                    onDoubleClick={(e) => handleDoubleClick(e, tab.id)}
+                  >
+                    {displayName}
+                  </span>
+                )}
 
                 <button
                   className={`shrink-0 rounded p-0.5 hover:bg-foreground/10 transition-colors ${
@@ -258,6 +337,12 @@ export function TabBar({ tabManager }: TabBarProps) {
             Close All
           </button>
           <div className="my-1 h-px bg-border" />
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            onClick={handleRenameFromMenu}
+          >
+            Rename
+          </button>
           <button
             className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
             onClick={handleCopyPath}

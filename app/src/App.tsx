@@ -11,7 +11,7 @@ import logoSvg from "@/assets/machete-logo.svg";
 
 function App() {
   const tabManager = useTabManager();
-  const { tabs, activeTabId, openTab, closeTab, activateTab } = tabManager;
+  const { tabs, activeTabId, openTab, closeTab, activateTab, reportTabStatus } = tabManager;
 
   const handleOpenRepo = useCallback(async () => {
     const selected = await open({ directory: true, multiple: false });
@@ -106,8 +106,10 @@ function App() {
         {tabs.map((tab) => (
           <RepoTabContent
             key={tab.id}
+            tabId={tab.id}
             repoPath={tab.repoPath}
             isActive={tab.id === activeTabId}
+            onStatusReport={reportTabStatus}
           />
         ))}
       </div>

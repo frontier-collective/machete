@@ -744,7 +744,7 @@ function BranchTreeView({
                 <button
                   className={`grid w-full items-center rounded-sm py-0.5 text-[14px] text-left outline-none ${
                     b.current
-                      ? "font-semibold text-foreground"
+                      ? "font-semibold text-foreground bg-accent/60"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
                   } ${isChecking ? "opacity-50" : ""}`}
                   style={{ paddingLeft: `${basePad + depth * 14}px`, paddingRight: 8, gridTemplateColumns: "auto 1fr auto" }}

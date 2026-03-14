@@ -3,6 +3,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 export interface Tab {
   id: string;
   repoPath: string;
+  /** User-defined custom label (shown instead of folder name) */
+  customLabel?: string;
 }
 
 export interface TabManagerState {
@@ -10,10 +12,20 @@ export interface TabManagerState {
   activeTabId: string | null;
 }
 
+/** Lightweight status summary reported by each tab's RepoTabContent */
+export interface TabStatusInfo {
+  /** Has uncommitted changes (staged or unstaged) */
+  dirty: boolean;
+  /** Has commits ahead of remote (unpushed) */
+  unpushed: boolean;
+}
+
 export interface TabManager {
   tabs: Tab[];
   activeTabId: string | null;
   activeTab: Tab | null;
+  /** Status indicators per tab (dirty/unpushed) */
+  tabStatuses: Record<string, TabStatusInfo>;
 
   openTab: (repoPath: string) => void;
   closeTab: (tabId: string) => void;
@@ -21,6 +33,8 @@ export interface TabManager {
   closeAllTabs: () => void;
   activateTab: (tabId: string) => void;
   moveTab: (fromIndex: number, toIndex: number) => void;
+  renameTab: (tabId: string, label: string) => void;
+  reportTabStatus: (tabId: string, status: TabStatusInfo) => void;
 }
 
 const STORAGE_KEY = "machete:session";
@@ -103,6 +117,7 @@ function migrateFromLegacy(): TabManagerState {
 
 export function useTabManager(): TabManager {
   const [state, setState] = useState<TabManagerState>(migrateFromLegacy);
+  const [tabStatuses, setTabStatuses] = useState<Record<string, TabStatusInfo>>({});
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -183,17 +198,40 @@ export function useTabManager(): TabManager {
     });
   }, []);
 
+  const renameTab = useCallback((tabId: string, label: string) => {
+    setState((prev) => {
+      const idx = prev.tabs.findIndex((t) => t.id === tabId);
+      if (idx === -1) return prev;
+      const next = [...prev.tabs];
+      next[idx] = { ...next[idx], customLabel: label || undefined };
+      return { ...prev, tabs: next };
+    });
+  }, []);
+
+  const reportTabStatus = useCallback((tabId: string, status: TabStatusInfo) => {
+    setTabStatuses((prev) => {
+      const existing = prev[tabId];
+      if (existing && existing.dirty === status.dirty && existing.unpushed === status.unpushed) {
+        return prev; // No change — avoid re-render
+      }
+      return { ...prev, [tabId]: status };
+    });
+  }, []);
+
   const activeTab = state.tabs.find((t) => t.id === state.activeTabId) ?? null;
 
   return {
     tabs: state.tabs,
     activeTabId: state.activeTabId,
     activeTab,
+    tabStatuses,
     openTab,
     closeTab,
     closeOtherTabs,
     closeAllTabs,
     activateTab,
     moveTab,
+    renameTab,
+    reportTabStatus,
   };
 }

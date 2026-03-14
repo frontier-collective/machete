@@ -14,6 +14,8 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
+  Plus,
+  Undo2,
 } from "lucide-react";
 import { useRepoPath, useStatus, useClassification } from "@/hooks/useRepo";
 import type { BranchSafetyResult } from "@/types";
@@ -48,6 +50,9 @@ export function BranchesView() {
   const [deleting, setDeleting] = useState(false);
   const [deleteResult, setDeleteResult] = useState<string | null>(null);
 
+  // Kept branches the user has promoted to the "safe to delete" list
+  const [promoted, setPromoted] = useState<Set<string>>(new Set());
+
   // Collapsible sections
   const [keptOpen, setKeptOpen] = useState(false);
   const [unsafeOpen, setUnsafeOpen] = useState(false);
@@ -75,7 +80,26 @@ export function BranchesView() {
 
   const selectAllSafe = () => {
     if (!classification) return;
-    setSelected(new Set(classification.safe.map((b) => b.branch)));
+    const all = new Set(classification.safe.map((b) => b.branch));
+    for (const name of promoted) all.add(name);
+    setSelected(all);
+  };
+
+  const promoteBranch = (name: string) => {
+    setPromoted((prev) => new Set(prev).add(name));
+  };
+
+  const unpromoteBranch = (name: string) => {
+    setPromoted((prev) => {
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
   };
 
   const handleDelete = async () => {
@@ -89,6 +113,7 @@ export function BranchesView() {
       setDeleteResult(`Deleted ${selected.size} branch${selected.size === 1 ? "" : "es"}.`);
       setConfirmOpen(false);
       setSelected(new Set());
+      setPromoted(new Set());
       await fetchClassification();
       refreshStatus();
       emit("remote-fetched"); // refresh sidebar branch list + commit log
@@ -122,7 +147,7 @@ export function BranchesView() {
 
   if (!classification && !loading) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-6 px-6">
+      <div className="flex h-full flex-col items-center justify-center gap-6 px-6 select-none">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10">
           <Scissors className="h-8 w-8 text-brand" />
         </div>
@@ -163,11 +188,9 @@ export function BranchesView() {
 
   // ─── Post-scan results ─────────────────────────────────────────────
 
-  const keptCount = (classification?.protected.length ?? 0) + (classification?.kept.length ?? 0);
-
   return (
     <TooltipProvider delayDuration={400}>
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col select-none">
       {/* Loading overlay — only shown for initial scan (no existing data) */}
       {loading && !classification && (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
@@ -184,10 +207,10 @@ export function BranchesView() {
             {classification.protected.length > 0 && (
               <Badge variant="protected">{classification.protected.length} protected</Badge>
             )}
-            {classification.kept.length > 0 && (
-              <Badge variant="secondary">{classification.kept.length} kept</Badge>
+            {classification.kept.length - promoted.size > 0 && (
+              <Badge variant="secondary">{classification.kept.length - promoted.size} kept</Badge>
             )}
-            <Badge variant="safe">{classification.safe.length} safe to delete</Badge>
+            <Badge variant="safe">{classification.safe.length + promoted.size} safe to delete</Badge>
             {classification.unsafe.length > 0 && (
               <Badge variant="unsafe">{classification.unsafe.length} unsafe</Badge>
             )}
@@ -218,101 +241,156 @@ export function BranchesView() {
           <ScrollArea className="flex-1 min-h-0">
             <div className="px-4 py-3 space-y-4">
               {/* Kept Branches (collapsible) */}
-              {keptCount > 0 && (
-                <div>
-                  <button
-                    className="flex w-full items-center gap-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
-                    onClick={() => setKeptOpen(!keptOpen)}
-                  >
-                    {keptOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                    Kept Branches
-                    <Badge variant="secondary" className="ml-1">{keptCount}</Badge>
-                  </button>
-                  {keptOpen && (
-                    <div className="mt-1 space-y-0.5">
-                      {classification.protected.map((branch) => (
-                        <div
-                          key={branch}
-                          className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm hover:bg-muted/50"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <Shield className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                            <span className="font-mono truncate">{branch}</span>
+              {(() => {
+                const remainingKept = classification.kept.filter(({ name }) => !promoted.has(name));
+                const visibleKeptCount = classification.protected.length + remainingKept.length;
+                // Branches that can be promoted: on remote and not the current branch
+                const canPromote = (reason: string) => reason === "on remote";
+
+                return visibleKeptCount > 0 ? (
+                  <div>
+                    <button
+                      className="flex w-full items-center gap-2 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+                      onClick={() => setKeptOpen(!keptOpen)}
+                    >
+                      {keptOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      Kept Branches
+                      <Badge variant="secondary" className="ml-1">{visibleKeptCount}</Badge>
+                    </button>
+                    {keptOpen && (
+                      <div className="mt-1 space-y-0.5">
+                        {classification.protected.map((branch) => (
+                          <div
+                            key={branch}
+                            className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm hover:bg-muted/50"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Shield className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                              <span className="font-mono truncate">{branch}</span>
+                            </div>
+                            <Badge variant="protected">protected</Badge>
                           </div>
-                          <Badge variant="protected">protected</Badge>
-                        </div>
-                      ))}
-                      {classification.kept.map(({ name, reason }) => (
-                        <div
-                          key={name}
-                          className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm hover:bg-muted/50"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-mono truncate">{name}</span>
+                        ))}
+                        {remainingKept.map(({ name, reason }) => (
+                          <div
+                            key={name}
+                            className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm hover:bg-muted/50"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="font-mono truncate">{name}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Badge variant="secondary">{reason}</Badge>
+                              {canPromote(reason) && (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      className="rounded p-0.5 text-muted-foreground hover:text-green-500 hover:bg-green-500/10 transition-colors"
+                                      onClick={() => promoteBranch(name)}
+                                    >
+                                      <Plus className="h-3.5 w-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Include in safe-to-delete list</TooltipContent>
+                                </Tooltip>
+                              )}
+                            </div>
                           </div>
-                          <Badge variant="secondary">{reason}</Badge>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null;
+              })()}
 
               {/* Safe to Delete (primary focus) */}
-              <div className="rounded-lg border border-green-500/30 bg-green-500/5">
-                <div className="flex items-center justify-between px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    <span className="text-sm font-semibold">Safe to Delete</span>
-                    <Badge variant="safe">{classification.safe.length}</Badge>
-                  </div>
-                  {classification.safe.length > 0 && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={selectAllSafe}>
-                          Select All
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Select all safe-to-delete branches</TooltipContent>
-                    </Tooltip>
-                  )}
-                </div>
-                <div className="px-3 pb-3">
-                  {classification.safe.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-2">
-                      No branches are safe to delete.
-                    </p>
-                  ) : (
-                    <div className="space-y-0.5">
-                      {classification.safe.map((result) => {
-                        const target = mergeTarget(result);
-                        const squash = isSquashMerge(result);
-                        return (
-                          <div
-                            key={result.branch}
-                            className="flex items-center gap-3 rounded-md px-3 py-1.5 text-sm hover:bg-green-500/10 cursor-pointer"
-                            onClick={() => toggleBranch(result.branch)}
-                          >
-                            <Checkbox
-                              checked={selected.has(result.branch)}
-                              onCheckedChange={() => toggleBranch(result.branch)}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                            <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <span className="font-mono flex-1 truncate">{result.branch}</span>
-                            {target && (
-                              <span className="text-xs text-muted-foreground shrink-0">
-                                {squash ? "squash" : "merged"} &rarr; {target}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
+              {(() => {
+                const totalSafe = classification.safe.length + promoted.size;
+                return (
+                  <div className="rounded-lg border border-green-500/30 bg-green-500/5">
+                    <div className="flex items-center justify-between px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <span className="text-sm font-semibold">Safe to Delete</span>
+                        <Badge variant="safe">{totalSafe}</Badge>
+                      </div>
+                      {totalSafe > 0 && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={selectAllSafe}>
+                              Select All
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Select all safe-to-delete branches</TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                    <div className="px-3 pb-3">
+                      {totalSafe === 0 ? (
+                        <p className="text-sm text-muted-foreground py-2">
+                          No branches are safe to delete.
+                        </p>
+                      ) : (
+                        <div className="space-y-0.5">
+                          {classification.safe.map((result) => {
+                            const target = mergeTarget(result);
+                            const squash = isSquashMerge(result);
+                            return (
+                              <div
+                                key={result.branch}
+                                className="flex items-center gap-3 rounded-md px-3 py-1.5 text-sm hover:bg-green-500/10 cursor-pointer"
+                                onClick={() => toggleBranch(result.branch)}
+                              >
+                                <Checkbox
+                                  checked={selected.has(result.branch)}
+                                  onCheckedChange={() => toggleBranch(result.branch)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <span className="font-mono flex-1 truncate">{result.branch}</span>
+                                {target && (
+                                  <span className="text-xs text-muted-foreground shrink-0">
+                                    {squash ? "squash" : "merged"} &rarr; {target}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {/* Promoted branches (moved from kept) */}
+                          {Array.from(promoted).map((name) => (
+                            <div
+                              key={name}
+                              className="flex items-center gap-3 rounded-md px-3 py-1.5 text-sm hover:bg-green-500/10 cursor-pointer"
+                              onClick={() => toggleBranch(name)}
+                            >
+                              <Checkbox
+                                checked={selected.has(name)}
+                                onCheckedChange={() => toggleBranch(name)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <span className="font-mono flex-1 truncate">{name}</span>
+                              <span className="text-xs text-muted-foreground shrink-0">on remote</span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                    onClick={(e) => { e.stopPropagation(); unpromoteBranch(name); }}
+                                  >
+                                    <Undo2 className="h-3 w-3" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>Move back to kept</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Unsafe (collapsible) */}
               {classification.unsafe.length > 0 && (
@@ -359,10 +437,10 @@ export function BranchesView() {
           </ScrollArea>
 
           {/* Sticky action footer */}
-          {classification.safe.length > 0 && (
+          {(classification.safe.length + promoted.size) > 0 && (
             <div className="flex items-center justify-between border-t px-4 py-3 shrink-0 bg-background">
               <p className="text-xs text-muted-foreground">
-                {selected.size} of {classification.safe.length} selected
+                {selected.size} of {classification.safe.length + promoted.size} selected
               </p>
               <div className="flex gap-2">
                 <Tooltip>

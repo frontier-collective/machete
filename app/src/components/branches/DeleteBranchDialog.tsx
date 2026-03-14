@@ -164,10 +164,11 @@ export function DeleteBranchDialog({
     }
 
     // 2. "kept" or not classified — these aren't dangerous, just not auto-prunable
-    //    Safe to delete locally (and remote too, since the work is on other branches
-    //    or the user is explicitly choosing to delete)
+    //    Safe to delete locally and remotely. safeViaRemote=false because we don't
+    //    want to show the "not merged" warning — kept branches may well be merged,
+    //    the classification just didn't confirm it either way.
     if (isKept) {
-      return { level: "safe", classResult, safeViaRemote: allPushed, isMerged, safeReasons, risks };
+      return { level: "safe", classResult, safeViaRemote: false, isMerged, safeReasons, risks };
     }
 
     // 3. Classified "unsafe" — has real risks

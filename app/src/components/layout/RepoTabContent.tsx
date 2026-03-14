@@ -24,14 +24,17 @@ import {
 } from "@/hooks/useRepo";
 import { useRepoLayout } from "@/hooks/useRepoLayout";
 import type { RepoStatus, PruneClassification, ConfigEntry } from "@/types";
+import type { TabStatusInfo } from "@/hooks/useTabManager";
 import { X } from "lucide-react";
 
 interface RepoTabContentProps {
+  tabId: string;
   repoPath: string;
   isActive: boolean;
+  onStatusReport?: (tabId: string, status: TabStatusInfo) => void;
 }
 
-export function RepoTabContent({ repoPath, isActive }: RepoTabContentProps) {
+export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: RepoTabContentProps) {
   const [status, setStatus] = useState<RepoStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -194,6 +197,29 @@ export function RepoTabContent({ repoPath, isActive }: RepoTabContentProps) {
     }
     wasActive.current = isActive;
   }, [isActive, refreshStatus]);
+
+  // ── Auto-fetch classification on initial load ────────────────────
+  // Active tab: fetch immediately once status is loaded.
+  // Inactive tabs: fetch with a delay so the active tab gets priority.
+  const classificationFetched = useRef(false);
+  useEffect(() => {
+    if (!repoPath || !status || classificationFetched.current || classification) return;
+    classificationFetched.current = true;
+    if (isActive) {
+      fetchClassification();
+    } else {
+      const timer = setTimeout(fetchClassification, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [repoPath, status, isActive, classification, fetchClassification]);
+
+  // ── Report tab status to parent (for dot indicators) ─────────────
+  useEffect(() => {
+    if (!onStatusReport || !status) return;
+    const dirty = !status.isClean;
+    const unpushed = status.aheadCount > 0;
+    onStatusReport(tabId, { dirty, unpushed });
+  }, [tabId, status, onStatusReport]);
 
   // ── Memoized context slices ───────────────────────────────────────
   // setRepoPath is a no-op within a tab — repo path is fixed per tab
