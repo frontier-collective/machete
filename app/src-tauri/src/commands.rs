@@ -792,8 +792,8 @@ pub async fn list_prs(repo_path: String) -> Result<Value, String> {
         let output = Command::new("gh")
             .args(&[
                 "pr", "list",
-                "--state", "open",
-                "--json", "number,title,state,isDraft,headRefName,baseRefName,author,url,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels,comments",
+                "--state", "all",
+                "--json", "number,title,state,isDraft,headRefName,baseRefName,author,url,createdAt,updatedAt,additions,deletions,changedFiles,reviewDecision,labels,comments,mergedAt,closedAt",
                 "--limit", "50",
             ])
             .current_dir(&repo_path)

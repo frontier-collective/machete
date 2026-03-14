@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   GitBranch,
   Globe,
@@ -112,6 +113,14 @@ export function RepoSidebar({
   useEffect(() => {
     fetchSidebarData();
   }, [fetchSidebarData, sidebarTrigger]);
+
+  // Refresh sidebar when remote is fetched (e.g. toolbar Fetch button)
+  useEffect(() => {
+    const unlisten = listen("remote-fetched", () => {
+      fetchSidebarData();
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [fetchSidebarData]);
 
   const handleOpenRepo = async () => {
     const selected = await open({ directory: true, multiple: false });
@@ -381,8 +390,8 @@ export function RepoSidebar({
 
       {/* Status legend */}
       {repoPath && (
-        <div className="border-t px-3 py-2 shrink-0">
-          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+        <div className="border-t px-3 py-2 shrink-0 flex items-center justify-center">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground justify-center">
             <span className="flex items-center gap-1">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
               Uncommitted
@@ -402,6 +411,13 @@ export function RepoSidebar({
           </div>
         </div>
       )}
+
+      {/* App info */}
+      <div className="border-t px-3 py-1.5 shrink-0 flex items-center justify-center">
+        <span className="text-[10px] text-muted-foreground/50">
+          {__APP_NAME__} v{__APP_VERSION__} by {__APP_AUTHOR__}
+        </span>
+      </div>
 
       {/* Create Branch Dialog */}
       <CreateBranchDialog

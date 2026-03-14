@@ -76,6 +76,12 @@ export function CommitLog() {
     };
   }, [fetchLog]);
 
+  // Refresh after fetch/prune to update branch badges
+  useEffect(() => {
+    const unlisten = listen("remote-fetched", () => { fetchLog(); });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [fetchLog]);
+
   // Build a set of local branch names from the log's refs.
   // "HEAD -> X" is always a local branch. We also collect all refs and
   // subtract remote-tracking ones (which contain a remote prefix matching

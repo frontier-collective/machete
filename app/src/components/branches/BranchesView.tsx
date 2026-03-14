@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import {
   GitBranch,
   Shield,
@@ -88,6 +89,7 @@ export function BranchesView() {
       setConfirmOpen(false);
       setSelected(new Set());
       await fetchClassification();
+      emit("remote-fetched"); // refresh sidebar branch list
     } catch (e) {
       setError(String(e));
       setConfirmOpen(false);

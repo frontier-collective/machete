@@ -79,6 +79,8 @@ export interface GithubPr {
   reviewDecision: string;
   labels: { name: string; color: string }[];
   comments: { totalCount?: number }[];
+  mergedAt?: string;
+  closedAt?: string;
 }
 
 export interface ReleasePreview {

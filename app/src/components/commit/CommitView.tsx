@@ -400,9 +400,9 @@ function StagingView({ repoPath }: { repoPath: string }) {
   }, [bottomHeight, updateLayout]);
   const bottomDragHandle = useDrag(onBottomDrag, "vertical");
 
-  const fetchContext = useCallback(async () => {
+  const fetchContext = useCallback(async (showLoading = false) => {
     if (!repoPath) return;
-    setLoading(true);
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const ctx = await invoke<CommitContext>("get_commit_context", { repoPath });
@@ -410,7 +410,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
     } catch (e) {
       setError(String(e));
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [repoPath]);
 
@@ -421,7 +421,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
     : "";
 
   useEffect(() => {
-    fetchContext();
+    fetchContext(!context); // show loading spinner only on initial load
   }, [fetchContext, stagingTrigger]);
 
   // Monotonic counter bumped on every filesystem change — forces diff refetch
@@ -482,23 +482,49 @@ function StagingView({ repoPath }: { repoPath: string }) {
 
   async function handleStageFiles(files: string[]) {
     if (!repoPath) return;
+    // Optimistic UI: move files from unstaged to staged immediately
+    if (context) {
+      const fileSet = new Set(files);
+      const moving = context.unstaged.filter((f) => fileSet.has(f.file));
+      if (moving.length > 0) {
+        setContext({
+          ...context,
+          staged: [...context.staged, ...moving],
+          unstaged: context.unstaged.filter((f) => !fileSet.has(f.file)),
+        });
+      }
+    }
     try {
       await invoke("stage_files", { repoPath, files });
-      await fetchContext();
+      fetchContext(); // refresh in background (no await)
       refreshStatus();
     } catch (e) {
       setError(String(e));
+      fetchContext(); // revert optimistic update on error
     }
   }
 
   async function handleUnstageFiles(files: string[]) {
     if (!repoPath) return;
+    // Optimistic UI: move files from staged to unstaged immediately
+    if (context) {
+      const fileSet = new Set(files);
+      const moving = context.staged.filter((f) => fileSet.has(f.file));
+      if (moving.length > 0) {
+        setContext({
+          ...context,
+          staged: context.staged.filter((f) => !fileSet.has(f.file)),
+          unstaged: [...moving, ...context.unstaged],
+        });
+      }
+    }
     try {
       await invoke("unstage_files", { repoPath, files });
-      await fetchContext();
+      fetchContext(); // refresh in background (no await)
       refreshStatus();
     } catch (e) {
       setError(String(e));
+      fetchContext(); // revert optimistic update on error
     }
   }
 

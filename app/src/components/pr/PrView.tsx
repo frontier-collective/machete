@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   GitPullRequest,
   GitBranch,
+  GitMerge,
   Loader2,
   Sparkles,
   ExternalLink,
@@ -48,16 +50,27 @@ import remarkBreaks from "remark-breaks";
 type ViewState = "intro" | "list" | "create";
 type BodyTab = "edit" | "preview";
 
+// Module-level cache so PR data survives sheet close/reopen
+const prCache: Record<string, { prs: GithubPr[] }> = {};
+
 export function PrView() {
   const { repoPath } = useRepoPath();
   const { status } = useStatus();
   const { defaultBranch, protectedBranches: metadataProtected } = useRepoMetadata();
 
-  // View navigation
+  // View navigation — always start on intro
+  const cached = repoPath ? prCache[repoPath] : undefined;
   const [view, setView] = useState<ViewState>("intro");
 
-  // Existing PRs
-  const [prs, setPrs] = useState<GithubPr[]>([]);
+  // Existing PRs — restore from cache if available
+  const [prs, setPrsRaw] = useState<GithubPr[]>(cached?.prs ?? []);
+  const prsRef = useRef(prs);
+  const setPrs = useCallback((p: GithubPr[]) => {
+    setPrsRaw(p);
+    prsRef.current = p;
+    if (repoPath) prCache[repoPath] = { prs: p };
+  }, [repoPath]);
+
   const [prsLoading, setPrsLoading] = useState(false);
   const [prsError, setPrsError] = useState<string | null>(null);
 
@@ -122,12 +135,20 @@ export function PrView() {
     fetchPrs();
   }, [repoPath, fetchPrs]);
 
-  // Reset when repo changes
+  // Refresh PRs when ⌘⇧R fires
+  useEffect(() => {
+    const unlisten = listen("refresh-all", () => { fetchPrs(); });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [fetchPrs]);
+
+  // Reset when repo changes — restore from cache if available
   useEffect(() => {
     hasFetchedPrs.current = false;
     hasLoadedContext.current = false;
+    const c = repoPath ? prCache[repoPath] : undefined;
     setView("intro");
-    setPrs([]);
+    setPrsRaw(c?.prs ?? []);
+    prsRef.current = c?.prs ?? [];
     setPrsError(null);
     setContext(null);
     setBase("");
@@ -331,7 +352,7 @@ export function PrView() {
 
   if (view === "intro") {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-6 px-6">
+      <div className="relative flex h-full flex-col items-center justify-center gap-6 px-6">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10">
           <GitPullRequest className="h-8 w-8 text-brand" />
         </div>
@@ -360,11 +381,25 @@ export function PrView() {
         {currentBranchPr && (
           <div className="rounded-md border bg-muted/50 px-4 py-2.5 max-w-xs w-full">
             <div className="flex items-center gap-2 text-xs">
-              <CircleDot className="h-3.5 w-3.5 text-green-500 shrink-0" />
+              {currentBranchPr.state === "MERGED" ? (
+                <GitMerge className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+              ) : currentBranchPr.state === "CLOSED" ? (
+                <GitPullRequest className="h-3.5 w-3.5 text-red-500 shrink-0" />
+              ) : currentBranchPr.isDraft ? (
+                <GitPullRequest className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              ) : (
+                <GitPullRequest className="h-3.5 w-3.5 text-green-500 shrink-0" />
+              )}
               <span className="font-medium truncate">#{currentBranchPr.number} {currentBranchPr.title}</span>
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              This branch already has an open PR
+              {currentBranchPr.state === "MERGED"
+                ? "This branch's PR was merged"
+                : currentBranchPr.state === "CLOSED"
+                ? "This branch's PR was closed"
+                : currentBranchPr.isDraft
+                ? "This branch has a draft PR"
+                : "This branch already has an open PR"}
             </p>
           </div>
         )}
@@ -380,26 +415,27 @@ export function PrView() {
           </Button>
         </div>
 
-        {/* Loading spinner for background PR fetch — below buttons */}
-        {prsLoading && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Scanning for open PRs...
-          </div>
-        )}
+        {/* Pinned bottom status — never shifts the centered content */}
+        <div className="absolute bottom-4 left-0 right-0 flex flex-col items-center gap-1">
+          {prsLoading && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Scanning for open PRs...
+            </div>
+          )}
 
-        {/* PR count badge if loaded */}
-        {!prsLoading && prs.length > 0 && !currentBranchPr && (
-          <div className="text-xs text-muted-foreground">
-            {prs.length} open PR{prs.length === 1 ? "" : "s"} in this repo
-          </div>
-        )}
+          {!prsLoading && prs.length > 0 && !currentBranchPr && (
+            <div className="text-xs text-muted-foreground">
+              {prs.length} open PR{prs.length === 1 ? "" : "s"} in this repo
+            </div>
+          )}
 
-        {prsError && (
-          <div className="rounded-md bg-destructive/10 px-4 py-2 text-xs text-destructive max-w-xs">
-            {prsError}
-          </div>
-        )}
+          {prsError && (
+            <div className="rounded-md bg-destructive/10 px-4 py-2 text-xs text-destructive max-w-xs">
+              {prsError}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -412,7 +448,7 @@ export function PrView() {
         <div className="flex h-full flex-col">
           {/* Summary bar */}
           <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
-            <span className="text-xs font-semibold uppercase text-muted-foreground">Open Pull Requests</span>
+            <span className="text-xs font-semibold uppercase text-muted-foreground">Pull Requests</span>
             <Badge variant="secondary">{prs.length}</Badge>
             <div className="ml-auto flex items-center gap-1">
               <Tooltip>
@@ -440,11 +476,18 @@ export function PrView() {
             {!prsLoading && prs.length === 0 && !prsError && (
               <div className="flex flex-col items-center justify-center gap-3 py-16 text-muted-foreground">
                 <GitPullRequest className="h-8 w-8 opacity-30" />
-                <span className="text-sm">No open pull requests</span>
+                <span className="text-sm">No pull requests</span>
               </div>
             )}
             <div className="divide-y">
-              {prs.map((pr) => (
+              {[...prs].sort((a, b) => {
+                // Open/draft first, then closed/merged
+                const aOpen = a.state === "OPEN" ? 0 : 1;
+                const bOpen = b.state === "OPEN" ? 0 : 1;
+                if (aOpen !== bOpen) return aOpen - bOpen;
+                // Within same group, most recently updated first
+                return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+              }).map((pr) => (
                 <PrRow key={pr.number} pr={pr} isCurrentBranch={pr.headRefName === status?.branch} />
               ))}
             </div>
@@ -531,13 +574,13 @@ export function PrView() {
 
         {/* Top fields (non-scrolling) */}
         <div className="px-4 py-3 space-y-3 shrink-0">
-          {/* Current branch already has a PR warning */}
-          {currentBranchPr && (
+          {/* Current branch already has a PR warning — only for open/draft */}
+          {currentBranchPr && currentBranchPr.state === "OPEN" && (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2">
               <CircleDot className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
               <div className="text-xs">
                 <p className="font-medium text-amber-700 dark:text-amber-400">
-                  This branch already has an open PR
+                  This branch already has {currentBranchPr.isDraft ? "a draft" : "an open"} PR
                 </p>
                 <a
                   href={currentBranchPr.url}
@@ -1030,11 +1073,19 @@ function PrRow({ pr, isCurrentBranch }: { pr: GithubPr; isCurrentBranch: boolean
             <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
           )}
         </span>
-        <CircleDot className={`h-4 w-4 mt-0.5 shrink-0 ${pr.isDraft ? "text-muted-foreground" : "text-green-500"}`} />
+        {pr.state === "MERGED" ? (
+          <GitMerge className="h-4 w-4 mt-0.5 shrink-0 text-purple-500" />
+        ) : pr.state === "CLOSED" ? (
+          <GitPullRequest className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
+        ) : pr.isDraft ? (
+          <GitPullRequest className="h-4 w-4 mt-0.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <GitPullRequest className="h-4 w-4 mt-0.5 shrink-0 text-green-500" />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium truncate">{pr.title}</span>
-            <span className="text-[10px] text-muted-foreground shrink-0">#{pr.number}</span>
+            <span className="text-[10px] text-muted-foreground shrink-0 font-mono">#{pr.number}</span>
+            <span className={`text-sm font-medium ${expanded ? "" : "truncate"} ${pr.state !== "OPEN" ? "text-muted-foreground" : ""}`}>{pr.title}</span>
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
             <span className="text-[10px] text-muted-foreground font-mono">
@@ -1047,8 +1098,14 @@ function PrRow({ pr, isCurrentBranch }: { pr: GithubPr; isCurrentBranch: boolean
             {isCurrentBranch && (
               <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5">current</Badge>
             )}
-            {pr.isDraft && (
+            {pr.isDraft && pr.state === "OPEN" && (
               <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5">draft</Badge>
+            )}
+            {pr.state === "MERGED" && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 border-purple-500/50 text-purple-500">merged</Badge>
+            )}
+            {pr.state === "CLOSED" && (
+              <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5 border-red-500/50 text-red-500">closed</Badge>
             )}
           </div>
         </div>

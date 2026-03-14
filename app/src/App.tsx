@@ -98,7 +98,7 @@ function App() {
       { key: ",", meta: true, handler: () => toggleAction("settings") },            // ⌘, — Settings
       { key: "p", meta: true, shift: true, handler: () => toggleAction("pr") },     // ⌘⇧P — PR panel
       { key: "b", meta: true, shift: true, handler: () => toggleAction("prune") },  // ⌘⇧B — Branches/prune
-      { key: "r", meta: true, shift: true, handler: () => toggleAction("release") }, // ⌘⇧R — Release
+      { key: "e", meta: true, shift: true, handler: () => toggleAction("release") }, // ⌘⇧E — Release
     ],
     [toggleAction]
   );

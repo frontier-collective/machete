@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Sun,
@@ -139,11 +140,18 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
     try {
       await invoke("fetch_remote", { repoPath });
       refreshStatus();
+      emit("remote-fetched");
     } catch (e) {
       console.error("Fetch failed:", e);
     } finally {
       setFetchLoading(false);
     }
+  }
+
+  async function handleRefreshAll() {
+    // Fetch remote first, then broadcast so all panels refresh
+    await handleFetch();
+    emit("refresh-all");
   }
 
   // Keyboard shortcuts for push/pull/fetch
@@ -152,6 +160,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
       { key: "u", meta: true, shift: true, handler: handlePush },    // ⌘⇧U — Push
       { key: "l", meta: true, shift: true, handler: handlePull },    // ⌘⇧L — Pull
       { key: "f", meta: true, shift: true, handler: handleFetch },   // ⌘⇧F — Fetch
+      { key: "r", meta: true, shift: true, handler: handleRefreshAll }, // ⌘⇧R — Refresh all remote state
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [repoPath, pushLoading, pullLoading, fetchLoading]
@@ -377,7 +386,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                 <Rocket className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Release<Kbd>⌘⇧R</Kbd></TooltipContent>
+            <TooltipContent>Release<Kbd>⌘⇧E</Kbd></TooltipContent>
           </Tooltip>
 
           <Tooltip>
