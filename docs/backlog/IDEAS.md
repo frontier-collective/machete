@@ -38,6 +38,7 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 ## GUI
 
 - [ ] `MACH-0007` Machete GUI — cross-platform graphical layer over machete CLI (Tauri 2.0 + Svelte/React)
+- [ ] `MACH-0010` Full git operations — discard, partial staging, amend, revert, reset, tags, remotes, interactive rebase, blame, file history, diff options, submodules, worktrees, reflog, bisect, 3-way merge editor
 
 ## Infrastructure
 
