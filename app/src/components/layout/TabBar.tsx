@@ -7,9 +7,10 @@ import logoSvg from "@/assets/machete-logo.svg";
 
 interface TabBarProps {
   tabManager: TabManager;
+  onAbout?: () => void;
 }
 
-export function TabBar({ tabManager }: TabBarProps) {
+export function TabBar({ tabManager, onAbout }: TabBarProps) {
   const { tabs, activeTabId, tabStatuses, openTab, closeTab, closeOtherTabs, closeAllTabs, activateTab, moveTab, renameTab } = tabManager;
 
   // Context menu
@@ -244,14 +245,9 @@ export function TabBar({ tabManager }: TabBarProps) {
   return (
     <>
       <div
-        className="flex h-9 items-center border-b bg-background/80 shrink-0 select-none overflow-x-auto pl-[78px]"
+        className="flex h-9 items-center border-b bg-background/80 shrink-0 select-none overflow-x-auto pl-[128px]"
         onMouseDown={handleBarMouseDown}
       >
-        {/* Logo */}
-        <div className="flex items-center shrink-0 px-2">
-          <img src={logoSvg} alt="Machete" className="h-4 w-4 rounded-sm" />
-        </div>
-
         {/* Tabs */}
         <div className="flex items-center min-w-0 flex-1">
           {tabs.map((tab, index) => {
@@ -267,7 +263,7 @@ export function TabBar({ tabManager }: TabBarProps) {
                 key={tab.id}
                 data-tab
                 ref={(el) => { if (el) tabRefs.current.set(tab.id, el); else tabRefs.current.delete(tab.id); }}
-                className={`group relative flex items-center gap-1.5 px-3 h-9 text-xs cursor-pointer border-r border-border/50 max-w-[200px] min-w-[100px] ${
+                className={`group relative flex items-center gap-1.5 px-3 h-9 text-xs cursor-pointer border-r border-border/50 max-w-[200px] min-w-[150px] ${
                   isActive
                     ? "bg-background text-foreground"
                     : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
@@ -344,6 +340,15 @@ export function TabBar({ tabManager }: TabBarProps) {
             <Plus className="h-3.5 w-3.5" />
           </button>
         </div>
+
+        {/* Logo — right end, opens About dialog */}
+        <button
+          className="flex items-center shrink-0 px-3 h-9 hover:bg-muted/50 transition-colors"
+          onClick={onAbout}
+          title="About Machete"
+        >
+          <img src={logoSvg} alt="Machete" className="h-4 w-4 rounded-sm" />
+        </button>
       </div>
 
       {/* Context menu */}
