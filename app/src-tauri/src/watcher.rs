@@ -31,23 +31,30 @@ pub async fn watch_repo(app: AppHandle, repo_path: String) -> Result<(), String>
         Duration::from_millis(500),
         move |events: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
             if let Ok(events) = events {
-                // Filter out .git/objects and .git/logs noise — only care about
-                // working tree changes, .git/index, .git/HEAD, .git/refs
-                let dominated_by_git_internals = events.iter().all(|e| {
+                // Only emit when meaningful changes occur:
+                // - Working tree files (anything NOT under .git/)
+                // - .git/HEAD (branch switch)
+                // - .git/refs/ (new commits, tags, remote updates)
+                // Ignore everything else inside .git/ — especially .git/index
+                // which is written by `git status` itself (stat cache refresh),
+                // creating a feedback loop: status → index write → watcher → status → ...
+                let has_meaningful_change = events.iter().any(|e| {
                     if e.kind != DebouncedEventKind::Any {
-                        return true;
+                        return false;
                     }
                     let p = e.path.to_string_lossy();
-                    // .git/objects, .git/logs, .git/COMMIT_EDITMSG etc. are noise
-                    (p.contains("/.git/objects/")
-                        || p.contains("/.git/logs/")
-                        || p.contains("/.git/COMMIT_EDITMSG"))
-                        && !p.contains("/.git/index")
-                        && !p.contains("/.git/HEAD")
-                        && !p.contains("/.git/refs/")
+                    if !p.contains("/.git/") {
+                        // Working tree change
+                        return true;
+                    }
+                    // Inside .git/ — only care about HEAD and refs
+                    if p.ends_with("/.git/HEAD") || p.contains("/.git/refs/") {
+                        return true;
+                    }
+                    false
                 });
 
-                if !dominated_by_git_internals {
+                if has_meaningful_change {
                     let _ = app_handle.emit("repo-fs-changed", ());
                 }
             }

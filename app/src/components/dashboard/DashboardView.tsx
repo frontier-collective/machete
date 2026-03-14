@@ -47,7 +47,11 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <span className="text-2xl font-bold truncate">{status.branch}</span>
+              <span className="text-2xl font-bold truncate">
+                {status.detachedAt
+                  ? <><span className="text-amber-500">HEAD</span> <span className="font-mono text-lg text-muted-foreground">({status.detachedAt})</span></>
+                  : status.branch}
+              </span>
               <span
                 className={`inline-block h-2.5 w-2.5 rounded-full ${
                   status.isClean ? "bg-green-500" : "bg-amber-500"

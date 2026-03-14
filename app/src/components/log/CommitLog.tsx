@@ -1,9 +1,19 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Loader2 } from "lucide-react";
+import { Loader2, CircleDot } from "lucide-react";
 import { useRepoPath, useStatus, useSelection } from "@/hooks/useRepo";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { CommitLogEntry } from "@/types";
 import { computeGraphLayout, type CommitGraphRow } from "./graphLayout";
 import { GraphColumn, LANE_WIDTH, ROW_HEIGHT, UNCOMMITTED_COLOR, laneColor } from "./GraphColumn";
@@ -12,16 +22,18 @@ const GRID_COLS = "4.5rem 1fr 7rem 5.5rem";
 
 export function CommitLog() {
   const { repoPath } = useRepoPath();
-  const { status } = useStatus();
+  const { status, refreshStatus } = useStatus();
   const { selectedBranch, selectedCommitHash, setSelectedCommitHash } = useSelection();
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [detachConfirm, setDetachConfirm] = useState<CommitLogEntry | null>(null);
   const [commits, setCommits] = useState<CommitLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const hasLoaded = useRef(false);
   const lastCommitsJson = useRef<string>("");
 
   // Build a stable "fingerprint" of status that only changes when we need to refetch the log
-  // (branch switch or commit count changes — NOT staged/unstaged file changes)
-  const logTrigger = status ? `${status.branch}:${status.stagedCount + status.unstagedCount}:${status.isClean}:${status.aheadCount}` : "";
+  // (branch switch, commit count changes, ahead/behind changes — NOT staged/unstaged file changes)
+  const logTrigger = status ? `${status.branch}:${status.stagedCount + status.unstagedCount}:${status.isClean}:${status.aheadCount}:${status.behindCount}` : "";
 
   const fetchLog = useCallback(async () => {
     if (!repoPath) return;
@@ -30,8 +42,9 @@ export function CommitLog() {
       const result = await invoke<CommitLogEntry[]>("get_commit_log", {
         repoPath,
       });
-      // Only update state if commits actually changed (prevents flickering)
-      const json = JSON.stringify(result.map((c) => c.hash));
+      // Only update state if commits or refs actually changed (prevents flickering).
+      // Include refs so branch creation/deletion, tag changes, etc. are picked up.
+      const json = JSON.stringify(result.map((c) => `${c.hash}:${c.refs.join(",")}`));
       if (json !== lastCommitsJson.current) {
         lastCommitsJson.current = json;
         setCommits(result);
@@ -49,16 +62,116 @@ export function CommitLog() {
     fetchLog();
   }, [fetchLog, logTrigger]);
 
+  // Also listen for filesystem changes (merge/rebase/commit updates .git/refs/)
+  // so the graph refreshes even if the status fingerprint doesn't capture it.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unlisten = listen("repo-fs-changed", () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(fetchLog, 300);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten.then((fn) => fn());
+    };
+  }, [fetchLog]);
+
+  // Build a set of local branch names from the log's refs.
+  // "HEAD -> X" is always a local branch. We also collect all refs and
+  // subtract remote-tracking ones (which contain a remote prefix matching
+  // a ref that also appears without it, e.g. "origin/main" vs "main").
+  const localBranchNames = useMemo(() => {
+    const allRefs = new Set<string>();
+    const headRefs = new Set<string>();
+    for (const c of commits) {
+      for (const ref of c.refs) {
+        if (ref.startsWith("HEAD -> ")) {
+          headRefs.add(ref.replace("HEAD -> ", ""));
+        } else if (!ref.startsWith("tag: ")) {
+          allRefs.add(ref);
+        }
+      }
+    }
+    // A ref is remote-tracking if some other ref is a suffix of it after
+    // stripping a "remoteName/" prefix. Collect remote prefixes by finding
+    // refs where stripping a prefix yields a known HEAD ref.
+    const remotePrefixes = new Set<string>();
+    for (const ref of allRefs) {
+      for (const localName of headRefs) {
+        if (ref.endsWith(localName) && ref.length > localName.length) {
+          remotePrefixes.add(ref.slice(0, ref.length - localName.length));
+        }
+      }
+    }
+    // Now identify local branches: HEAD refs + non-remote allRefs
+    const locals = new Set(headRefs);
+    for (const ref of allRefs) {
+      const isRemote = [...remotePrefixes].some((p) => ref.startsWith(p));
+      if (!isRemote) locals.add(ref);
+    }
+    return locals;
+  }, [commits]);
+
+  // Find a local branch at this commit that isn't the current branch.
+  const getCheckoutBranch = useCallback((commit: CommitLogEntry): string | null => {
+    const currentBranch = status?.branch;
+    for (const ref of commit.refs) {
+      if (ref.startsWith("tag: ")) continue;
+      const branch = ref.startsWith("HEAD -> ") ? ref.replace("HEAD -> ", "") : ref;
+      if (branch === currentBranch) continue;
+      if (localBranchNames.has(branch)) return branch;
+    }
+    return null;
+  }, [status?.branch, localBranchNames]);
+
+  // Find the current HEAD commit hash (for no-op detection)
+  const currentHeadHash = useMemo(() => {
+    for (const c of commits) {
+      // On a branch: refs include "HEAD -> branchname"
+      if (c.refs.some((r) => r.startsWith("HEAD -> "))) return c.hash;
+      // Detached HEAD: refs include bare "HEAD"
+      if (c.refs.includes("HEAD")) return c.hash;
+    }
+    return null;
+  }, [commits]);
+
+  const doCheckout = useCallback(async (ref: string) => {
+    if (!repoPath) return;
+    setCheckoutLoading(ref);
+    try {
+      await invoke("checkout_branch", { repoPath, branch: ref });
+      refreshStatus();
+    } catch {
+      // Checkout failed (dirty working tree, etc.) — silently ignore
+    } finally {
+      setCheckoutLoading(null);
+    }
+  }, [repoPath, refreshStatus]);
+
+  const handleDoubleClick = useCallback(async (commit: CommitLogEntry) => {
+    if (!repoPath || checkoutLoading) return;
+    // No-op if already at this commit
+    if (commit.hash === currentHeadHash) return;
+    // Prefer checking out a local branch if one points here
+    const branch = getCheckoutBranch(commit);
+    if (branch) {
+      doCheckout(branch);
+      return;
+    }
+    // No local branch → will detach HEAD. Show confirmation.
+    setDetachConfirm(commit);
+  }, [repoPath, checkoutLoading, currentHeadHash, getCheckoutBranch, doCheckout]);
+
   // Compute graph layout from commits
   const baseGraphRows = useMemo(() => computeGraphLayout(commits), [commits]);
 
   // Determine if there are uncommitted changes
   const hasUncommitted = status && !status.isClean;
 
-  // Find the HEAD commit index — the one with "HEAD -> branch" in its refs
+  // Find the HEAD commit index — the one with "HEAD -> branch" or bare "HEAD" (detached) in its refs
   const headCommitIndex = useMemo(() => {
     for (let i = 0; i < commits.length; i++) {
-      if (commits[i].refs.some((r) => r.startsWith("HEAD -> "))) return i;
+      if (commits[i].refs.some((r) => r.startsWith("HEAD -> ") || r === "HEAD")) return i;
     }
     return 0; // fallback to first
   }, [commits]);
@@ -234,11 +347,47 @@ export function CommitLog() {
                 showUncommittedPassThrough={!!(hasUncommitted && i < headCommitIndex)}
                 showUncommittedCurve={!!(hasUncommitted && i === headCommitIndex)}
                 onClick={() => setSelectedCommitHash(commit.hash)}
+                onDoubleClick={() => handleDoubleClick(commit)}
               />
             );
           })}
         </div>
       </div>
+
+      {/* Detached HEAD confirmation dialog */}
+      <Dialog open={!!detachConfirm} onOpenChange={(open) => { if (!open) setDetachConfirm(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Detach HEAD?</DialogTitle>
+            <DialogDescription>
+              Checking out commit <span className="font-mono font-semibold">{detachConfirm?.shortHash}</span> will
+              put you in a detached HEAD state. Any new commits you make won't belong to a branch
+              unless you create one.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border px-3 py-2 text-sm text-muted-foreground">
+            <span className="font-mono">{detachConfirm?.shortHash}</span>{" "}
+            {detachConfirm?.message}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDetachConfirm(null)} disabled={!!checkoutLoading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (detachConfirm) {
+                  doCheckout(detachConfirm.hash);
+                  setDetachConfirm(null);
+                }
+              }}
+              disabled={!!checkoutLoading}
+            >
+              {checkoutLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Detach HEAD
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -256,6 +405,7 @@ interface CommitRowProps {
   showUncommittedPassThrough: boolean;
   showUncommittedCurve: boolean;
   onClick: () => void;
+  onDoubleClick?: () => void;
 }
 
 const CommitRow = memo(function CommitRow({
@@ -269,6 +419,7 @@ const CommitRow = memo(function CommitRow({
   showUncommittedPassThrough,
   showUncommittedCurve,
   onClick,
+  onDoubleClick,
 }: CommitRowProps) {
   return (
     <div
@@ -281,6 +432,7 @@ const CommitRow = memo(function CommitRow({
       }`}
       style={{ ...style, gridTemplateColumns: gridTemplate }}
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
     >
       <div className="flex items-center">
         <GraphColumn
@@ -362,11 +514,23 @@ function UncommittedGraphCell({
 }
 
 function RefBadge({ refName, laneColor: color }: { refName: string; laneColor: string }) {
+  // Detached HEAD — bare "HEAD" ref with icon
+  if (refName === "HEAD") {
+    return (
+      <Badge
+        className="text-[10px] px-1.5 py-0 h-4 font-mono text-white border-0 select-none flex items-center gap-0.5"
+        style={{ backgroundColor: color }}
+      >
+        <CircleDot className="h-2.5 w-2.5" />
+        HEAD
+      </Badge>
+    );
+  }
   if (refName.startsWith("HEAD -> ")) {
     const branch = refName.replace("HEAD -> ", "");
     return (
       <Badge
-        className="text-[10px] px-1.5 py-0 h-4 font-mono text-white border-0"
+        className="text-[10px] px-1.5 py-0 h-4 font-mono text-white border-0 select-none"
         style={{ backgroundColor: color }}
       >
         {branch}
@@ -376,7 +540,7 @@ function RefBadge({ refName, laneColor: color }: { refName: string; laneColor: s
   if (refName.startsWith("tag: ")) {
     const tag = refName.replace("tag: ", "");
     return (
-      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-mono border-amber-500/50 text-amber-600 dark:text-amber-400">
+      <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 font-mono border-amber-500/50 text-amber-600 dark:text-amber-400 select-none">
         {tag}
       </Badge>
     );
@@ -384,7 +548,7 @@ function RefBadge({ refName, laneColor: color }: { refName: string; laneColor: s
   // Remote branch or other ref — use lane color with reduced opacity
   return (
     <Badge
-      className="text-[10px] px-1.5 py-0 h-4 font-mono text-white/90 border-0"
+      className="text-[10px] px-1.5 py-0 h-4 font-mono text-white/90 border-0 select-none"
       style={{ backgroundColor: color, opacity: 0.75 }}
     >
       {refName}

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
@@ -6,14 +6,22 @@ import {
   Moon,
   GitPullRequest,
   Scissors,
+  Rocket,
   Settings,
   ArrowUp,
   ArrowDown,
   RefreshCw,
   Loader2,
+  Check,
+  Pencil,
+  ChevronDown,
+  Search,
+  GitBranch,
+  Shield,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRepoPath, useStatus } from "@/hooks/useRepo";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { useRepoPath, useStatus, useRepoMetadata } from "@/hooks/useRepo";
 import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import { useTheme } from "@/hooks/useTheme";
 import {
@@ -23,9 +31,10 @@ import {
   TooltipProvider,
   Kbd,
 } from "@/components/ui/tooltip";
+import type { BranchInfo } from "@/types";
 import logoSvg from "@/assets/machete-logo.svg";
 
-export type ToolbarAction = "pr" | "prune" | "settings" | null;
+export type ToolbarAction = "pr" | "prune" | "release" | "settings" | null;
 
 interface ToolbarProps {
   activeAction: ToolbarAction;
@@ -36,10 +45,46 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
   const { repoPath } = useRepoPath();
   const { status, refreshStatus } = useStatus();
   const { theme, toggle } = useTheme();
+  const { protectedBranches } = useRepoMetadata();
 
   const [pushLoading, setPushLoading] = useState(false);
   const [pullLoading, setPullLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(false);
+
+  // Branch switcher
+  const [branchMenuOpen, setBranchMenuOpen] = useState(false);
+  const [branches, setBranches] = useState<BranchInfo[]>([]);
+  const [branchFilter, setBranchFilter] = useState("");
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+
+  // Fetch branches when popover opens
+  useEffect(() => {
+    if (!branchMenuOpen || !repoPath) return;
+    setBranchFilter("");
+    invoke<BranchInfo[]>("get_branches", { repoPath })
+      .then(setBranches)
+      .catch(() => {});
+  }, [branchMenuOpen, repoPath]);
+
+  const filteredBranches = useMemo(() => {
+    if (!branchFilter) return branches;
+    const q = branchFilter.toLowerCase();
+    return branches.filter((b) => b.name.toLowerCase().includes(q));
+  }, [branches, branchFilter]);
+
+  const handleSwitchBranch = useCallback(async (branch: string) => {
+    if (!repoPath || checkoutLoading) return;
+    setCheckoutLoading(branch);
+    try {
+      await invoke("checkout_branch", { repoPath, branch });
+      setBranchMenuOpen(false);
+      refreshStatus();
+    } catch (e) {
+      console.error("Checkout failed:", e);
+    } finally {
+      setCheckoutLoading(null);
+    }
+  }, [repoPath, checkoutLoading, refreshStatus]);
 
   const toggleAction = (action: ToolbarAction) => {
     onAction(activeAction === action ? null : action);
@@ -134,12 +179,82 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
         {status && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="relative flex items-center gap-3 text-sm pointer-events-auto">
-              <span
-                className={`inline-block h-2 w-2 rounded-full shrink-0 ${
-                  status.isClean ? "bg-green-500" : "bg-amber-500"
-                }`}
-              />
-              <span className="font-medium">{status.branch}</span>
+              <span className="flex items-center gap-1.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex items-center">
+                      {status.isClean ? (
+                        <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                      ) : (
+                        <Pencil className="h-3 w-3 text-amber-500 shrink-0" />
+                      )}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>{status.isClean ? "Working tree clean" : "Uncommitted changes"}</TooltipContent>
+                </Tooltip>
+                {!status.detachedAt && protectedBranches.includes(status.branch) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center">
+                        <Shield className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>Protected branch</TooltipContent>
+                  </Tooltip>
+                )}
+              </span>
+              <Popover open={branchMenuOpen} onOpenChange={setBranchMenuOpen}>
+                <PopoverTrigger asChild>
+                  <button className="flex items-center gap-1 font-medium hover:text-brand transition-colors rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-muted/50">
+                    {status.detachedAt
+                      ? <><span className="text-amber-500">HEAD</span> <span className="font-mono text-muted-foreground">({status.detachedAt})</span></>
+                      : status.branch}
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64 p-0" align="center" sideOffset={8}>
+                  <div className="flex items-center gap-2 border-b px-3 py-2">
+                    <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <input
+                      className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                      placeholder="Filter branches…"
+                      value={branchFilter}
+                      onChange={(e) => setBranchFilter(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto py-1">
+                    {filteredBranches.length === 0 ? (
+                      <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                        {branches.length === 0 ? "Loading…" : "No matching branches"}
+                      </div>
+                    ) : (
+                      filteredBranches.map((b) => (
+                        <button
+                          key={b.name}
+                          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors disabled:opacity-50"
+                          disabled={b.current || checkoutLoading !== null}
+                          onClick={() => handleSwitchBranch(b.name)}
+                        >
+                          {checkoutLoading === b.name ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-muted-foreground" />
+                          ) : b.current ? (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                          ) : protectedBranches.includes(b.name) ? (
+                            <Shield className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                          ) : (
+                            <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="truncate">{b.name}</span>
+                          {b.current && (
+                            <span className="ml-auto text-[10px] text-muted-foreground">current</span>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
 
               {(status.aheadCount > 0 || status.behindCount > 0) && (
                 <span className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -234,7 +349,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                 <GitPullRequest className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Create PR<Kbd>⌘⇧P</Kbd></TooltipContent>
+            <TooltipContent>Pull Requests<Kbd>⌘⇧P</Kbd></TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -249,6 +364,20 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent>Prune Branches<Kbd>⌘⇧B</Kbd></TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={activeAction === "release" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => toggleAction("release")}
+              >
+                <Rocket className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Release<Kbd>⌘⇧R</Kbd></TooltipContent>
           </Tooltip>
 
           <Tooltip>

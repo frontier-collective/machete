@@ -35,64 +35,64 @@ A focused git workflow tool — not a full git GUI trying to replace Fork or Git
 
 Think of it as "the git workflow tool with a face" rather than "another git GUI."
 
-## Recommended Stack
+## Stack (Resolved)
 
-### Tauri 2.0 (Rust backend + web frontend)
+### Tauri 2.0 + React 19 + Tailwind CSS
 
-Tauri is the clear winner for this use case:
-
+- **Backend**: Tauri 2.0 (Rust) — git operations implemented directly as Tauri commands via `std::process::Command` calling git CLI
+- **Frontend**: React 19 + Tailwind CSS + Radix UI (shadcn/ui primitives)
+- **Build**: Vite for frontend bundling, Cargo for Rust backend
+- **File watching**: `notify` crate for live repo status updates
 - **App size**: ~10 MB (vs Electron's 100+ MB)
 - **Memory**: ~30-40 MB idle (vs Electron's 200-300 MB)
 - **Startup**: Sub-second (vs Electron's 2-5 seconds)
-- **Backend**: Rust — natural fit for git operations via `git2-rs` (Rust bindings for libgit2), or shelling out to the machete CLI
-- **Frontend**: Any web framework (Svelte recommended for bundle size, React for ecosystem)
-- **Platforms**: Windows, macOS, Linux (and mobile via Tauri 2.0)
-- **Precedent**: "Ariadne" git client is being built with Tauri — starts in under 1 second, under 40 MB on disk
 
-### Why not Electron?
+#### Why React over Svelte?
+
+React was chosen over the originally-recommended Svelte for practical reasons:
+- Larger ecosystem of battle-tested components (Radix UI, shadcn/ui)
+- More developers can contribute
+- Better IDE tooling and TypeScript integration
+- React 19's improvements close the DX gap with Svelte
+
+#### Why not Electron?
 
 GitKraken is Electron-based and its sluggishness is a cautionary tale. The whole point of this project is to be faster than SourceTree — using Electron would undermine that goal from day one.
 
-### Why not Qt/C++?
+#### Why not Qt/C++?
 
 Fork and Gittyup use Qt. Native performance is great, but the development velocity is much slower, cross-platform UI consistency is harder, and the pool of developers who can contribute is smaller. Tauri gives native-like performance with web-frontend development speed.
 
-## Architecture
+## Architecture (Resolved)
 
-### CLI-first design
+### Direct Rust backend (not CLI shell-out)
 
-The GUI wraps the machete CLI rather than reimplementing git operations. This has several advantages:
+The original plan proposed shelling out to the machete CLI from the Rust backend. In practice, git operations are implemented directly in Rust via `std::process::Command` calling git CLI commands. This avoids the overhead of spawning a Node.js process for every operation and gives the GUI sub-millisecond IPC latency.
 
-1. **CLI stays useful** — users who prefer the terminal lose nothing
-2. **Shared logic** — safety checks, AI prompts, config system are all in the CLI
-3. **Testability** — CLI is already tested; GUI tests focus on UI only
-4. **Incremental delivery** — GUI can ship features one at a time, falling back to CLI for the rest
+The CLI and GUI share the same git concepts but have independent implementations:
+- **CLI**: TypeScript in `src/lib/git.ts` — battle-tested, handles AI workflows, release automation
+- **GUI**: Rust in `app/src-tauri/src/commands.rs` — optimized for responsiveness, exposes Tauri `invoke()` commands
+
+This means the CLI stays useful for terminal users, while the GUI gets native-speed git operations without Node.js overhead. Long-term, migrating the CLI to Rust would unify the implementations (see open questions).
 
 ### Communication model
 
 ```
-┌──────────────┐       IPC / stdin-stdout       ┌──────────────┐
-│  Tauri Shell │  ◄──────────────────────────►   │  machete CLI │
-│  (Rust)      │                                 │  (Node.js)   │
-└──────┬───────┘                                 └──────────────┘
-       │ Tauri commands
-       │ (invoke)
+┌──────────────┐
+│  React UI    │
+│  (Vite)      │
+└──────┬───────┘
+       │ Tauri invoke()
+       │ (IPC, type-safe)
 ┌──────▼───────┐
-│  Web UI      │
-│  (Svelte)    │
+│  Rust Backend│  ──► git CLI (std::process::Command)
+│  (Tauri 2)   │  ──► notify (file watcher)
 └──────────────┘
 ```
 
-Two integration approaches to evaluate:
+### App version sync
 
-1. **Shell out to machete CLI** — simplest, treats CLI as the source of truth. GUI parses structured output (JSON mode flag on CLI commands). Slower per-operation but zero duplication.
-2. **Shared library** — extract machete's core logic into a library consumed by both CLI and GUI. Faster IPC but requires restructuring the codebase. Better long-term.
-
-Recommend starting with approach 1 (shell out) and migrating to approach 2 if performance demands it.
-
-### JSON output mode
-
-Before the GUI can consume CLI output programmatically, machete commands need a `--json` flag that outputs structured data instead of ANSI-formatted text. This is a prerequisite.
+The app version is read from the root `package.json` at build time via `tauri.conf.json` → `"version": "../../package.json"`. No manual sync needed — `machete release` bumps the version once and it flows to both CLI and GUI.
 
 ## Layout Design (Sourcetree-inspired)
 
@@ -202,9 +202,195 @@ Scope: A single-repo window with permanent panels matching the layout design abo
 - [x] Commit graph / history view (branch visualization replacing simple list)
 - [x] Branch list with safety indicators (from `machete prune --json`)
 - [x] One-click safe prune (with squash-merge detection shown visually)
-- [ ] Branch creation with machete naming conventions (`machete branch`)
 - [x] Checkout / switch branches (click branch in sidebar)
-- [ ] Merge / rebase with conflict resolution UI
+- [x] Basic branch creation (CreateBranchDialog — name, source branch, checkout toggle)
+- [x] Branch creation with machete naming conventions (see spec below)
+- [x] Merge / rebase with conflict resolution UI (see spec below)
+
+---
+
+#### Spec: Branch creation with machete naming conventions
+
+**Current state:** CreateBranchDialog exists with free-text name input, source branch selector, and checkout toggle. No naming conventions or structure.
+
+**Goal:** Guide users toward consistent branch naming (`feature/MACH-NNNN-description`, `bugfix/description`, `hotfix/description`) while still allowing free-form names.
+
+##### UI: Enhanced CreateBranchDialog
+
+```
+┌─ Create Branch ──────────────────────────────────────┐
+│                                                      │
+│  Branch type     [ feature ▾ ]                       │
+│                  (feature / bugfix / hotfix / other)  │
+│                                                      │
+│  Story ID        [ MACH-     ]  (optional)           │
+│                  Auto-suggests next available ID      │
+│                                                      │
+│  Description     [ my-feature-name ]                 │
+│                  Auto-kebab-cases as you type         │
+│                                                      │
+│  ── Preview ──────────────────────────────────────── │
+│  feature/MACH-0009-my-feature-name                   │
+│  ────────────────────────────────────────────────── │
+│                                                      │
+│  Source branch   [ develop ▾ ]                       │
+│  ☑ Checkout after creation                           │
+│  ☐ Free-form name (disables type/story fields)       │
+│                                                      │
+│                        [ Cancel ]  [ Create Branch ]  │
+└──────────────────────────────────────────────────────┘
+```
+
+##### Behavior
+
+1. **Branch type selector** — dropdown with `feature`, `bugfix`, `hotfix`, `other`. Defaults to `feature`. Selecting `other` hides the story ID field and uses a single free-text input (current behavior).
+2. **Story ID field** — optional. Shows `MACH-` prefix, user types just the number. Auto-suggests the next available ID by scanning existing branches and `docs/backlog/stories/`. If provided, becomes part of the branch name.
+3. **Description field** — free text, auto-converted to kebab-case in real-time (spaces → hyphens, lowercase, strip invalid chars). Validated against git ref rules.
+4. **Live preview** — shows the assembled branch name: `{type}/{story-id}-{description}` or `{type}/{description}` if no story ID.
+5. **Free-form toggle** — checkbox that collapses type/story fields and shows a single name input (current behavior). For users who don't want conventions.
+6. **Source branch default** — defaults to `develop` if it exists, otherwise current branch (matching the machete convention that features branch from develop).
+7. **Validation** — reject if branch name already exists (local or remote). Show inline error.
+
+##### Rust backend
+
+New Tauri command: `get_next_story_id`
+- Scans local branches for `MACH-NNNN` patterns
+- Scans `docs/backlog/stories/` filenames for `MACH-NNNN` patterns
+- Returns the next available sequential ID
+
+Existing `create_branch` command is reused as-is — the frontend assembles the full branch name.
+
+##### Keyboard shortcut
+
+Keep existing `⌘⇧N` shortcut. When invoked from the sidebar context menu ("Create branch from..."), pre-fill the source branch.
+
+---
+
+#### Spec: Merge / rebase with conflict resolution UI
+
+**Current state:** No merge or rebase UI. Merge only exists in the CLI's release command (`mergeNoFf`). No conflict detection or resolution.
+
+**Goal:** Let users merge or rebase branches from the GUI with a clear, step-by-step conflict resolution flow when conflicts occur.
+
+##### Entry points
+
+1. **Sidebar context menu** — right-click a branch → "Merge into current branch..." or "Rebase current branch onto..."
+2. **Branches view** — action button per branch row
+3. **Toolbar merge button** — appears contextually when the current branch is behind its upstream or a target branch
+
+##### UI: Merge/Rebase dialog
+
+```
+┌─ Merge ──────────────────────────────────────────────┐
+│                                                      │
+│  Merge  [ feature/MACH-0009-auth ▾ ]                │
+│  into   develop (current branch)                     │
+│                                                      │
+│  Strategy   ○ Merge commit (--no-ff)                 │
+│             ○ Fast-forward only (--ff-only)           │
+│             ○ Squash (--squash)                       │
+│                                                      │
+│  ── Preview ──────────────────────────────────────── │
+│  3 commits will be merged                            │
+│  No conflicts detected (dry-run)                     │
+│  ────────────────────────────────────────────────── │
+│                                                      │
+│                          [ Cancel ]  [ Merge ]        │
+└──────────────────────────────────────────────────────┘
+```
+
+```
+┌─ Rebase ─────────────────────────────────────────────┐
+│                                                      │
+│  Rebase   develop (current branch)                   │
+│  onto     [ main ▾ ]                                 │
+│                                                      │
+│  5 commits will be replayed                          │
+│                                                      │
+│  ⚠ This rewrites commit history.                     │
+│  Do not rebase branches that have been pushed        │
+│  and shared with others.                             │
+│                                                      │
+│                          [ Cancel ]  [ Rebase ]       │
+└──────────────────────────────────────────────────────┘
+```
+
+##### Merge strategies
+
+| Strategy | Git command | When to use |
+|----------|------------|-------------|
+| Merge commit | `git merge --no-ff <branch>` | Default. Preserves full branch history. |
+| Fast-forward only | `git merge --ff-only <branch>` | When you want a linear history and the branch is ahead. Fails if not possible. |
+| Squash | `git merge --squash <branch>` | Collapse all commits into one. User writes the commit message. |
+
+##### Rebase
+
+- Command: `git rebase <target>`
+- Shows warning about history rewriting
+- If current branch has been pushed, show stronger warning: "This branch has been pushed to remote. Rebasing will require a force push."
+- Detect if branch has remote tracking and is ahead of remote → warn
+
+##### Conflict resolution flow
+
+When merge or rebase hits conflicts:
+
+```
+┌─ Conflicts (3 files) ────────────────────────────────┐
+│                                                      │
+│  ⚠ Merge paused — resolve conflicts to continue     │
+│                                                      │
+│  ┌─ Conflicted files ─────────────────────────────┐  │
+│  │ ⚡ src/lib/git.ts              [ Ours ] [ Theirs ] [ Open ] │
+│  │ ⚡ src/commands/release.ts     [ Ours ] [ Theirs ] [ Open ] │
+│  │ ✅ src/index.ts                (resolved)        │  │
+│  └─────────────────────────────────────────────────┘  │
+│                                                      │
+│  ┌─ Diff ──────────────────────────────────────────┐  │
+│  │ <<<<<<< HEAD                                    │  │
+│  │ const version = "0.3.0";                        │  │
+│  │ =======                                         │  │
+│  │ const version = "0.4.0";                        │  │
+│  │ >>>>>>> feature/release-bump                    │  │
+│  └─────────────────────────────────────────────────┘  │
+│                                                      │
+│  [ Abort Merge ]            [ Continue Merge ]        │
+└──────────────────────────────────────────────────────┘
+```
+
+**Phase 2 scope (this phase):**
+
+1. **Conflicted file list** — show files with conflict markers, resolved status
+2. **Accept ours / accept theirs** — per-file resolution buttons (`git checkout --ours/--theirs <file>`)
+3. **Open in editor** — launch `$EDITOR` or system default for manual resolution
+4. **Mark resolved** — `git add <file>` when user confirms resolution
+5. **Abort** — `git merge --abort` or `git rebase --abort`
+6. **Continue** — `git merge --continue` or `git rebase --continue`
+
+**Deferred to Phase 4 (interactive rebase):**
+
+- Inline diff editing (edit conflict markers in the GUI)
+- Side-by-side 3-way merge view (base / ours / theirs)
+- AI-assisted conflict resolution ("suggest resolution")
+- Interactive rebase (reorder, squash, edit, drop commits)
+
+##### Rust backend — new Tauri commands
+
+| Command | Parameters | Description |
+|---------|-----------|-------------|
+| `merge_branch` | `repo_path`, `branch`, `strategy` (`no-ff`, `ff-only`, `squash`) | Execute merge, return success or conflict list |
+| `rebase_branch` | `repo_path`, `onto` | Execute rebase, return success or conflict list |
+| `get_conflict_files` | `repo_path` | List files with unresolved conflicts |
+| `resolve_conflict` | `repo_path`, `file`, `resolution` (`ours`, `theirs`, `manual`) | Resolve a single file |
+| `abort_merge` | `repo_path` | `git merge --abort` or `git rebase --abort` |
+| `continue_merge` | `repo_path` | `git merge --continue` or `git rebase --continue` |
+| `merge_preview` | `repo_path`, `branch` | Dry-run: count commits, detect potential conflicts |
+
+##### Safety guardrails
+
+- **Protected branches** — cannot merge INTO a protected branch from the GUI (mirrors machete convention). Show explanation: "main is a protected branch. Use a pull request instead."
+- **Dirty working tree** — block merge/rebase if working tree is dirty. Show: "Commit or stash changes before merging."
+- **Rebase warning** — if branch has been pushed and diverges from remote, show force-push warning before allowing rebase.
+- **Abort is always available** — prominent abort button during conflict resolution. Never leave the user stuck in a half-merged state.
 
 ### Phase 3: Multi-repo & workspaces
 
@@ -256,13 +442,19 @@ Scope: A single-repo window with permanent panels matching the layout design abo
 | Free | Yes | No (private repos) | No ($50) | Mostly |
 | Multi-repo | Tabs | Tabs | Tabs | Windows |
 
+## Resolved Decisions
+
+1. **Frontend framework**: React 19 — larger ecosystem, Radix UI/shadcn primitives, better TypeScript tooling.
+2. **Repo structure**: Monorepo — GUI lives in `app/` within `@frontier-collective/machete`.
+3. **Git operations**: Direct Rust backend — Tauri commands call git CLI via `std::process::Command`. No Node.js overhead.
+4. **Diff engine**: Unified diff rendered in React with syntax highlighting. No third-party diff library.
+5. **Version sync**: `tauri.conf.json` reads version from root `package.json` at build time.
+
 ## Open Questions
 
-1. **Frontend framework**: Svelte (smaller bundles, simpler) vs React (larger ecosystem, more developers)?
-2. **Repo name**: Ship as part of `@frontier-collective/machete` monorepo or separate `machete-gui` repo?
-3. **Monetization**: Stay free forever, or freemium with advanced features (team workspaces, enterprise SSO)?
-4. **Diff engine**: Use an existing diff library (diff2html, monaco-diff) or build a custom high-performance one?
-5. **Git operations**: Shell out to machete CLI (simple, slower) vs shared Rust/Node library (complex, faster)?
+1. **Monetization**: Stay free forever, or freemium with advanced features (team workspaces, enterprise SSO)?
+2. **Rust CLI migration**: Rewrite the TypeScript CLI in Rust to share one codebase with the GUI backend? Would enable npm distribution via platform-specific binary packages (like esbuild/SWC).
+3. **Linux/Windows**: macOS-first, but Tauri supports all 3 platforms. When to prioritize cross-platform testing?
 
 ## Research References
 

@@ -17,7 +17,7 @@ import {
   MonitorSmartphone,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useRepoPath, useStatus, useSelection, useLayout } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useSelection, useLayout, useClassification } from "@/hooks/useRepo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +36,8 @@ import {
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
 import { CreateBranchDialog } from "@/components/branches/CreateBranchDialog";
-import type { BranchInfo, RemoteInfo, PruneClassification, ConfigEntry } from "@/types";
+import { MergeRebaseDialog, type MergeMode } from "@/components/branches/MergeRebaseDialog";
+import type { BranchInfo, RemoteInfo, ConfigEntry } from "@/types";
 
 export function RepoSidebar({
   width,
@@ -66,13 +67,17 @@ export function RepoSidebar({
   // Checkout state
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
 
-  // Branch safety state
-  const [safety, setSafety] = useState<PruneClassification | null>(null);
-  const [safetyLoading, setSafetyLoading] = useState(false);
+  // Branch safety — shared context (synced with BranchesView)
+  const { classification: safety, classificationLoading: safetyLoading, fetchClassification: handleAnalyzeSafety } = useClassification();
 
   // Create branch dialog state
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createDialogSource, setCreateDialogSource] = useState<string | null>(null);
+
+  // Merge/Rebase dialog state
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [mergeDialogMode, setMergeDialogMode] = useState<MergeMode>("merge");
+  const [mergeDialogBranch, setMergeDialogBranch] = useState<string | null>(null);
 
   const fetchSidebarData = useCallback(async () => {
     if (!repoPath) return;
@@ -98,10 +103,10 @@ export function RepoSidebar({
     }
   }, [repoPath]);
 
-  // Stable fingerprint: only refetch when branch, ahead/behind, or clean state changes
-  // (NOT on every staged/unstaged file change — those don't affect the sidebar)
+  // Stable fingerprint: only refetch when branch or ahead/behind changes.
+  // isClean is intentionally excluded — dirty state doesn't change the branch list.
   const sidebarTrigger = status
-    ? `${status.branch}:${status.aheadCount}:${status.behindCount}:${status.isClean}`
+    ? `${status.branch}:${status.aheadCount}:${status.behindCount}`
     : "";
 
   useEffect(() => {
@@ -129,22 +134,21 @@ export function RepoSidebar({
     }
   };
 
-  const handleAnalyzeSafety = async () => {
-    if (!repoPath || safetyLoading) return;
-    setSafetyLoading(true);
-    try {
-      const result = await invoke<PruneClassification>("get_branch_classification", { repoPath });
-      setSafety(result);
-    } catch {
-      // Non-critical
-    } finally {
-      setSafetyLoading(false);
-    }
-  };
-
   const handleCreateBranch = (sourceBranch: string) => {
     setCreateDialogSource(sourceBranch);
     setCreateDialogOpen(true);
+  };
+
+  const handleMerge = (branch: string) => {
+    setMergeDialogBranch(branch);
+    setMergeDialogMode("merge");
+    setMergeDialogOpen(true);
+  };
+
+  const handleRebase = (branch: string) => {
+    setMergeDialogBranch(branch);
+    setMergeDialogMode("rebase");
+    setMergeDialogOpen(true);
   };
 
   const getBranchSafetyDot = (branchName: string): string | null => {
@@ -285,6 +289,8 @@ export function RepoSidebar({
                   onSelect={(name) => setSelectedBranch(name)}
                   onCheckout={handleCheckout}
                   onCreateBranch={handleCreateBranch}
+                  onMerge={handleMerge}
+                  onRebase={handleRebase}
                   expandedFolders={expandedFolders}
                   toggleFolder={toggleFolder}
                 />
@@ -307,7 +313,7 @@ export function RepoSidebar({
                   return (
                     <div key={r.name}>
                       <button
-                        className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                        className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50"
                         style={{ paddingLeft: 16, paddingRight: 8 }}
                         onClick={() => toggleRemote(r.name)}
                       >
@@ -355,7 +361,7 @@ export function RepoSidebar({
                   tags.map((tag) => (
                     <button
                       key={tag}
-                      className={`flex w-full truncate rounded-sm py-0.5 text-xs cursor-pointer ${
+                      className={`flex w-full truncate rounded-sm py-0.5 text-[14px] cursor-pointer ${
                         selectedBranch === `tag:${tag}`
                           ? "bg-accent text-foreground"
                           : "text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -373,6 +379,30 @@ export function RepoSidebar({
         </ScrollArea>
       )}
 
+      {/* Status legend */}
+      {repoPath && (
+        <div className="border-t px-3 py-2 shrink-0">
+          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
+              Uncommitted
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+              Protected
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+              Safe to delete
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" />
+              Unsafe
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Create Branch Dialog */}
       <CreateBranchDialog
         open={createDialogOpen}
@@ -380,6 +410,17 @@ export function RepoSidebar({
         defaultSource={createDialogSource}
         branches={branches}
         onCreated={fetchSidebarData}
+      />
+
+      {/* Merge / Rebase Dialog */}
+      <MergeRebaseDialog
+        open={mergeDialogOpen}
+        onOpenChange={setMergeDialogOpen}
+        mode={mergeDialogMode}
+        defaultBranch={mergeDialogBranch}
+        branches={branches}
+        protectedBranches={protectedBranches}
+        onCompleted={() => { fetchSidebarData(); refreshStatus(); }}
       />
     </aside>
     </TooltipProvider>
@@ -442,6 +483,8 @@ function BranchTreeView({
   onSelect,
   onCheckout,
   onCreateBranch,
+  onMerge,
+  onRebase,
   expandedFolders,
   toggleFolder,
 }: {
@@ -456,6 +499,8 @@ function BranchTreeView({
   onSelect: (name: string) => void;
   onCheckout: (name: string) => void;
   onCreateBranch: (sourceBranch: string) => void;
+  onMerge: (branch: string) => void;
+  onRebase: (branch: string) => void;
   expandedFolders: Set<string>;
   toggleFolder: (path: string) => void;
 }) {
@@ -481,7 +526,7 @@ function BranchTreeView({
             <ContextMenu key={b.name}>
               <ContextMenuTrigger asChild>
                 <button
-                  className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-xs text-left outline-none ${
+                  className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-[14px] text-left outline-none ${
                     b.current
                       ? "font-semibold text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
@@ -531,17 +576,17 @@ function BranchTreeView({
                     ) : (b.ahead > 0 || b.behind > 0) ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70 font-mono">
+                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground/70 font-mono">
                             {b.behind > 0 && (
                               <span className="flex items-center gap-0.5">
                                 {b.behind}
-                                <ArrowDown className="h-2.5 w-2.5" />
+                                <ArrowDown className="h-3 w-3" />
                               </span>
                             )}
                             {b.ahead > 0 && (
                               <span className="flex items-center gap-0.5">
                                 {b.ahead}
-                                <ArrowUp className="h-2.5 w-2.5" />
+                                <ArrowUp className="h-3 w-3" />
                               </span>
                             )}
                           </span>
@@ -569,6 +614,19 @@ function BranchTreeView({
                 <ContextMenuItem onClick={() => onCreateBranch(b.name)}>
                   Create branch from {node.name}...
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled={b.current}
+                  onClick={() => onMerge(b.name)}
+                >
+                  Merge {node.name} into current branch...
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={b.current}
+                  onClick={() => onRebase(b.name)}
+                >
+                  Rebase current branch onto {node.name}...
+                </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
           );
@@ -581,7 +639,7 @@ function BranchTreeView({
         return (
           <div key={`folder-${node.name}`}>
             <button
-              className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50"
               style={{ paddingLeft: `${basePad + depth * 14 - 4}px`, paddingRight: 8 }}
               onClick={() => toggleFolder(folderPath)}
             >
@@ -606,6 +664,8 @@ function BranchTreeView({
                 onSelect={onSelect}
                 onCheckout={onCheckout}
                 onCreateBranch={onCreateBranch}
+                onMerge={onMerge}
+                onRebase={onRebase}
                 expandedFolders={expandedFolders}
                 toggleFolder={toggleFolder}
               />
@@ -690,7 +750,7 @@ function RemoteBranchTreeView({
           return (
             <button
               key={node.fullRef}
-              className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-xs text-left cursor-pointer ${
+              className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-[14px] text-left cursor-pointer ${
                 selectedBranch === node.fullRef
                   ? "bg-accent text-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -711,7 +771,7 @@ function RemoteBranchTreeView({
         return (
           <div key={`folder-${node.name}`}>
             <button
-              className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50"
+              className="flex w-full items-center gap-1.5 rounded-sm py-0.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/50"
               style={{ paddingLeft: `${basePad + depth * 14 - 4}px`, paddingRight: 8 }}
               onClick={() => toggleFolder(folderPath)}
             >

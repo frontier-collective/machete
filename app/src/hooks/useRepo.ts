@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { RepoStatus } from "@/types";
+import type { RepoStatus, PruneClassification } from "@/types";
 import type { RepoLayout } from "@/hooks/useRepoLayout";
 
 // ─── Split contexts ─────────────────────────────────────────────────
@@ -30,6 +30,17 @@ export interface LayoutContextValue {
   updateLayout: (partial: Partial<RepoLayout>) => void;
 }
 
+export interface ClassificationContextValue {
+  classification: PruneClassification | null;
+  classificationLoading: boolean;
+  fetchClassification: () => Promise<void>;
+}
+
+export interface RepoMetadataContextValue {
+  defaultBranch: string | null;
+  protectedBranches: string[];
+}
+
 export const RepoPathContext = createContext<RepoPathContextValue>({
   repoPath: null,
   setRepoPath: () => {},
@@ -54,6 +65,17 @@ export const LayoutContext = createContext<LayoutContextValue>({
   updateLayout: () => {},
 });
 
+export const ClassificationContext = createContext<ClassificationContextValue>({
+  classification: null,
+  classificationLoading: false,
+  fetchClassification: async () => {},
+});
+
+export const RepoMetadataContext = createContext<RepoMetadataContextValue>({
+  defaultBranch: null,
+  protectedBranches: ["main", "master", "develop"],
+});
+
 // ─── Targeted hooks (prefer these) ─────────────────────────────────
 
 export function useRepoPath() {
@@ -70,6 +92,14 @@ export function useSelection() {
 
 export function useLayout() {
   return useContext(LayoutContext);
+}
+
+export function useClassification() {
+  return useContext(ClassificationContext);
+}
+
+export function useRepoMetadata() {
+  return useContext(RepoMetadataContext);
 }
 
 // ─── Legacy combined context ────────────────────────────────────────

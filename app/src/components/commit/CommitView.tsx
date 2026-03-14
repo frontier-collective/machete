@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Wand2, Loader2, ChevronDown } from "lucide-react";
 import { useRepoPath, useStatus, useSelection, useLayout } from "@/hooks/useRepo";
 import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
@@ -249,6 +250,7 @@ function FileStatusIcon({ status }: { status?: string }) {
     R: "Renamed",
     C: "Copied",
     M: "Modified",
+    "?": "Untracked",
   };
   const label = labels[status ?? "M"] ?? "Modified";
 
@@ -276,6 +278,12 @@ function FileStatusIcon({ status }: { status?: string }) {
         return (
           <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-blue-600 dark:text-blue-400 bg-blue-500/15 shrink-0">
             C
+          </span>
+        );
+      case "?":
+        return (
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/15 shrink-0">
+            U
           </span>
         );
       case "M":
@@ -432,6 +440,29 @@ function StagingView({ repoPath }: { repoPath: string }) {
     fetchContext();
   }, [fetchContext, stagingTrigger]);
 
+  // Monotonic counter bumped on every filesystem change — forces diff refetch
+  // even when the file list (stagingTrigger) hasn't changed (e.g. editing an
+  // untracked file that's already in the list).
+  const [fsTick, setFsTick] = useState(0);
+
+  // Listen directly for filesystem changes to refresh context + diff.
+  // App.tsx already calls refreshStatus() on repo-fs-changed, so we only
+  // need to refetch context and bump fsTick to force diff refresh.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const unlisten = listen("repo-fs-changed", () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        fetchContext();
+        setFsTick((t) => t + 1);
+      }, 300);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unlisten.then((fn) => fn());
+    };
+  }, [fetchContext]);
+
   const contextLines = layout.contextLines;
 
   const fetchDiff = useCallback(
@@ -455,17 +486,15 @@ function StagingView({ repoPath }: { repoPath: string }) {
     [repoPath, contextLines]
   );
 
-  // Re-fetch diff when file selection changes OR when staged/unstaged files change
-  // (uses the same fingerprint — if a file's content changes, git status reports it
-  // and the staging trigger will update, which re-triggers the context fetch above,
-  // and the diff is re-fetched when the context changes)
+  // Re-fetch diff when file selection changes, staged/unstaged files change,
+  // or filesystem changes are detected (fsTick).
   useEffect(() => {
     if (selectedFile) {
       fetchDiff(selectedFile, selectedFileStaged);
     } else {
       setDiff("");
     }
-  }, [selectedFile, selectedFileStaged, fetchDiff, stagingTrigger]);
+  }, [selectedFile, selectedFileStaged, fetchDiff, stagingTrigger, fsTick]);
 
   async function handleStageFiles(files: string[]) {
     if (!repoPath) return;
@@ -690,7 +719,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
                     Loading diff...
                   </div>
                 ) : (
-                  <DiffViewer diff={diff} />
+                  <DiffViewer diff={diff} fileInfo={[...staged, ...unstaged].find((f) => f.file === selectedFile)} />
                 )}
               </div>
             </>
@@ -784,8 +813,13 @@ interface FileRowProps {
 }
 
 function FileRow({ file, checked, selected, onCheckedChange, onSelect }: FileRowProps) {
-  const filename = file.file.split("/").pop() ?? file.file;
-  const dir = file.file.includes("/") ? file.file.slice(0, file.file.lastIndexOf("/") + 1) : "";
+  // Handle renamed files: "old → new" format
+  const isRenamed = file.file.includes(" → ");
+  const displayPath = isRenamed ? file.file.split(" → ")[1].trim() : file.file;
+  const oldPath = isRenamed ? file.file.split(" → ")[0].trim() : null;
+
+  const filename = displayPath.split("/").pop() ?? displayPath;
+  const dir = displayPath.includes("/") ? displayPath.slice(0, displayPath.lastIndexOf("/") + 1) : "";
 
   const stats = file.binary ? (
     <span className="text-muted-foreground text-[10px]">binary</span>
@@ -801,7 +835,7 @@ function FileRow({ file, checked, selected, onCheckedChange, onSelect }: FileRow
       className={`grid items-center rounded px-2 py-0.5 text-xs cursor-pointer hover:bg-accent ${
         selected ? "bg-accent" : ""
       }`}
-      style={{ gridTemplateColumns: "auto 1fr auto" }}
+      style={{ gridTemplateColumns: "auto auto 1fr auto" }}
       onClick={onSelect}
     >
       <Checkbox
@@ -810,9 +844,15 @@ function FileRow({ file, checked, selected, onCheckedChange, onSelect }: FileRow
         onClick={(e) => e.stopPropagation()}
         className="h-3.5 w-3.5 mr-1.5"
       />
-      <span className="truncate min-w-0 text-left">
+      <FileStatusIcon status={file.status} />
+      <span className="truncate min-w-0 text-left ml-1">
         {dir && <span className="text-muted-foreground">{dir}</span>}
         {filename}
+        {oldPath && (
+          <span className="text-muted-foreground ml-1">
+            ← {oldPath.split("/").pop() ?? oldPath}
+          </span>
+        )}
       </span>
       <span className="pl-2 shrink-0 whitespace-nowrap">
         {stats}
@@ -955,7 +995,12 @@ function parseDiff(diff: string, isBinaryHint?: boolean): ParsedDiff {
     return { status: "no-hunks", parsed: [], showBothGutters: false };
   }
 
-  const lines = rawLines.slice(startIdx);
+  // Remove trailing empty lines (e.g. from split on a string ending with \n)
+  // to avoid phantom context lines that break new-file detection.
+  let lines = rawLines.slice(startIdx);
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
   let oldLine = 0;
   let newLine = 0;
   let hunkNum = 0;
@@ -1007,6 +1052,14 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
     () => parseDiff(diff, isBinaryHint),
     [diff, isBinaryHint]
   );
+
+  // A file is "new" if it has status A (added) or ? (untracked), or if
+  // the diff contains only additions (no deletions or context lines).
+  const isNewFile = useMemo(() => {
+    if (fileInfo?.status === "A" || fileInfo?.status === "?") return true;
+    if (parsed.length === 0) return false;
+    return !parsed.some((p) => p.type === "del" || p.type === "ctx");
+  }, [fileInfo?.status, parsed]);
 
   // Virtualized scroll container
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1070,7 +1123,7 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <DiffLine p={p} showBothGutters={showBothGutters} />
+                  <DiffLine p={p} showBothGutters={showBothGutters} newFile={isNewFile} />
                 </div>
               );
             })}
@@ -1086,9 +1139,11 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
 const DiffLine = memo(function DiffLine({
   p,
   showBothGutters,
+  newFile,
 }: {
   p: ParsedLine;
   showBothGutters: boolean;
+  newFile?: boolean;
 }) {
   if (p.type === "no-newline") {
     return (
@@ -1119,14 +1174,19 @@ const DiffLine = memo(function DiffLine({
     );
   }
 
+  // New/untracked files: show content as plain text (no bg color, no +/- prefix)
+  const isPlain = newFile && p.type === "add";
+
   let bgClass = "";
   let textClass = "text-foreground";
-  if (p.type === "add") {
-    bgClass = "bg-green-500/10";
-    textClass = "text-green-700 dark:text-green-400";
-  } else if (p.type === "del") {
-    bgClass = "bg-red-500/10";
-    textClass = "text-red-700 dark:text-red-400";
+  if (!isPlain) {
+    if (p.type === "add") {
+      bgClass = "bg-green-500/10";
+      textClass = "text-green-700 dark:text-green-400";
+    } else if (p.type === "del") {
+      bgClass = "bg-red-500/10";
+      textClass = "text-red-700 dark:text-red-400";
+    }
   }
 
   return (
@@ -1140,11 +1200,13 @@ const DiffLine = memo(function DiffLine({
         {showBothGutters ? (p.newNum ?? "") : (p.oldNum ?? p.newNum ?? "")}
       </span>
       <span className={`flex-1 whitespace-pre break-all px-2 ${textClass}`}>
-        {p.type === "add"
-          ? `+ ${p.line.slice(1)}`
-          : p.type === "del"
-            ? `- ${p.line.slice(1)}`
-            : `  ${p.line.slice(1)}`}
+        {isPlain
+          ? `  ${p.line.slice(1)}`
+          : p.type === "add"
+            ? `+ ${p.line.slice(1)}`
+            : p.type === "del"
+              ? `- ${p.line.slice(1)}`
+              : `  ${p.line.slice(1)}`}
       </span>
     </div>
   );

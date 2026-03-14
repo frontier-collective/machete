@@ -8,6 +8,8 @@ export interface RepoStatus {
   remote: string;
   aheadCount: number;
   behindCount: number;
+  /** Short commit hash when HEAD is detached, null otherwise */
+  detachedAt: string | null;
 }
 
 export interface FileStatus {
@@ -60,6 +62,25 @@ export interface PrContext {
   aheadCount: number;
 }
 
+export interface GithubPr {
+  number: number;
+  title: string;
+  state: string;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: { login: string };
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  reviewDecision: string;
+  labels: { name: string; color: string }[];
+  comments: { totalCount?: number }[];
+}
+
 export interface ReleasePreview {
   currentVersion: string;
   versions: {
@@ -76,6 +97,27 @@ export interface ConfigEntry {
 }
 
 export type View = "dashboard" | "commit" | "branches" | "pr" | "release" | "settings";
+
+// Merge / Rebase
+export interface ConflictFile {
+  file: string;
+  status: string;
+  resolved?: boolean;
+}
+
+export interface MergeResult {
+  success: boolean;
+  conflicts?: ConflictFile[];
+  squash?: boolean;
+  message: string;
+  operation?: string;
+}
+
+export interface MergeState {
+  inMerge: boolean;
+  inRebase: boolean;
+  conflicts: ConflictFile[];
+}
 
 // Sidebar data
 export interface BranchInfo {

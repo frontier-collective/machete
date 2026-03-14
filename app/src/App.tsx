@@ -10,12 +10,13 @@ import { CommitLog } from "@/components/log/CommitLog";
 import { CommitView } from "@/components/commit/CommitView";
 import { BranchesView } from "@/components/branches/BranchesView";
 import { PrView } from "@/components/pr/PrView";
+import { ReleaseView } from "@/components/release/ReleaseView";
 import { SettingsView } from "@/components/settings/SettingsView";
 import { useDrag } from "@/hooks/useDrag";
 import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
-import { RepoContext, RepoPathContext, StatusContext, SelectionContext, LayoutContext } from "@/hooks/useRepo";
+import { RepoContext, RepoPathContext, StatusContext, SelectionContext, LayoutContext, ClassificationContext, RepoMetadataContext } from "@/hooks/useRepo";
 import { useRepoLayout } from "@/hooks/useRepoLayout";
-import type { RepoStatus } from "@/types";
+import type { RepoStatus, PruneClassification, ConfigEntry } from "@/types";
 import { Button } from "@/components/ui/button";
 import { FolderOpen, X } from "lucide-react";
 
@@ -30,6 +31,27 @@ function App() {
   const hasLoaded = useRef(false);
   const refreshInFlight = useRef(false);
   const refreshGeneration = useRef(0);
+
+  // Branch classification (shared between sidebar + BranchesView)
+  const [classification, setClassification] = useState<PruneClassification | null>(null);
+  const [classificationLoading, setClassificationLoading] = useState(false);
+
+  const fetchClassification = useCallback(async () => {
+    if (!repoPath || classificationLoading) return;
+    setClassificationLoading(true);
+    try {
+      const result = await invoke<PruneClassification>("get_branch_classification", { repoPath });
+      setClassification(result);
+    } catch {
+      // Non-critical
+    } finally {
+      setClassificationLoading(false);
+    }
+  }, [repoPath, classificationLoading]);
+
+  // Repo metadata: default branch + protected branches (loaded once per repo)
+  const [defaultBranch, setDefaultBranch] = useState<string | null>(null);
+  const [protectedBranches, setProtectedBranches] = useState<string[]>(["main", "master", "develop"]);
 
   // Toolbar slide-over state
   const [activeAction, setActiveAction] = useState<ToolbarAction>(null);
@@ -76,6 +98,7 @@ function App() {
       { key: ",", meta: true, handler: () => toggleAction("settings") },            // ⌘, — Settings
       { key: "p", meta: true, shift: true, handler: () => toggleAction("pr") },     // ⌘⇧P — PR panel
       { key: "b", meta: true, shift: true, handler: () => toggleAction("prune") },  // ⌘⇧B — Branches/prune
+      { key: "r", meta: true, shift: true, handler: () => toggleAction("release") }, // ⌘⇧R — Release
     ],
     [toggleAction]
   );
@@ -118,6 +141,25 @@ function App() {
     }
   }, [repoPath]);
 
+  // Fetch repo metadata (default branch + protected branches) once per repo
+  useEffect(() => {
+    if (!repoPath) return;
+    setDefaultBranch(null);
+    setProtectedBranches(["main", "master", "develop"]);
+
+    // Fetch default branch and protected branches in parallel
+    Promise.all([
+      invoke<string>("get_default_base_branch", { repoPath }),
+      invoke<ConfigEntry[]>("get_config_list", { repoPath }),
+    ]).then(([branch, cfg]) => {
+      setDefaultBranch(branch);
+      const pb = cfg.find((e) => e.key === "protectedBranches");
+      setProtectedBranches(
+        Array.isArray(pb?.value) ? (pb.value as string[]) : ["main", "master", "develop"]
+      );
+    }).catch(() => {});
+  }, [repoPath]);
+
   // Watch repo for filesystem changes and refresh on events
   useEffect(() => {
     if (!repoPath) return;
@@ -125,6 +167,7 @@ function App() {
     lastStatusJson.current = "";
     refreshInFlight.current = false;
     refreshGeneration.current = 0;
+    setClassification(null);
     refreshStatus();
 
     // Start the native file watcher
@@ -177,6 +220,14 @@ function App() {
     () => ({ layout, updateLayout }),
     [layout, updateLayout]
   );
+  const classificationCtx = useMemo(
+    () => ({ classification, classificationLoading, fetchClassification }),
+    [classification, classificationLoading, fetchClassification]
+  );
+  const repoMetadataCtx = useMemo(
+    () => ({ defaultBranch, protectedBranches }),
+    [defaultBranch, protectedBranches]
+  );
   // Legacy combined value — components still using useRepo() get this
   const combinedCtx = useMemo(
     () => ({ ...repoPathCtx, ...statusCtx, ...selectionCtx, ...layoutCtx }),
@@ -204,6 +255,8 @@ function App() {
     <StatusContext.Provider value={statusCtx}>
     <SelectionContext.Provider value={selectionCtx}>
     <LayoutContext.Provider value={layoutCtx}>
+    <ClassificationContext.Provider value={classificationCtx}>
+    <RepoMetadataContext.Provider value={repoMetadataCtx}>
     <RepoContext.Provider value={combinedCtx}>
       <div className="flex h-screen w-screen flex-col overflow-hidden">
         {/* Toolbar — full width, acts as custom titlebar */}
@@ -286,7 +339,7 @@ function App() {
 
             {/* Slide-over panels for toolbar actions */}
             <SlideOver
-              title="Create Pull Request"
+              title="Pull Requests"
               open={activeAction === "pr"}
               onClose={() => setActiveAction(null)}
               raw
@@ -308,6 +361,17 @@ function App() {
             </SlideOver>
 
             <SlideOver
+              title="Release"
+              open={activeAction === "release"}
+              onClose={() => setActiveAction(null)}
+              raw
+            >
+              <ErrorBoundary>
+                <ReleaseView />
+              </ErrorBoundary>
+            </SlideOver>
+
+            <SlideOver
               title="Settings"
               open={activeAction === "settings"}
               onClose={() => setActiveAction(null)}
@@ -320,6 +384,8 @@ function App() {
         </div>
       </div>
     </RepoContext.Provider>
+    </RepoMetadataContext.Provider>
+    </ClassificationContext.Provider>
     </LayoutContext.Provider>
     </SelectionContext.Provider>
     </StatusContext.Provider>

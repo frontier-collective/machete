@@ -17,18 +17,18 @@ export interface ShortcutDef {
  * (case-insensitive), the handler fires and the event is consumed.
  *
  * Shortcuts are automatically ignored when the active element is an
- * input, textarea, or contenteditable.
+ * input, textarea, or contenteditable — unless the shortcut uses
+ * the meta (Cmd) modifier, which is never normal text input.
  */
 export function useKeyboardShortcuts(shortcuts: ShortcutDef[]) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Don't intercept when typing in inputs
+      // Don't intercept when typing in inputs — but allow any Cmd (meta)
+      // combo through, since those are never normal text input (e.g. ⌘⇧M
+      // for cheatsheet, ⌘Enter for commit).
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable) {
-        // Exception: allow Cmd+Enter and Cmd+Shift+Enter even in textareas
-        // (for commit shortcut while typing the message)
-        const isModEnter = e.key === "Enter" && e.metaKey;
-        if (!isModEnter) return;
+        if (!e.metaKey) return;
       }
 
       for (const s of shortcuts) {

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   GitBranch,
@@ -14,8 +14,8 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
-import { useRepoPath } from "@/hooks/useRepo";
-import type { PruneClassification, BranchSafetyResult } from "@/types";
+import { useRepoPath, useClassification } from "@/hooks/useRepo";
+import type { BranchSafetyResult } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,9 +37,8 @@ import {
 
 export function BranchesView() {
   const { repoPath } = useRepoPath();
+  const { classification, classificationLoading: loading, fetchClassification } = useClassification();
 
-  const [classification, setClassification] = useState<PruneClassification | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -51,23 +50,14 @@ export function BranchesView() {
   const [keptOpen, setKeptOpen] = useState(false);
   const [unsafeOpen, setUnsafeOpen] = useState(false);
 
-  const fetchClassification = useCallback(async () => {
-    if (!repoPath) return;
-    setLoading(true);
-    setError(null);
-    setDeleteResult(null);
-    try {
-      const result = await invoke<PruneClassification>("get_branch_classification", {
-        repoPath,
-      });
-      setClassification(result);
-      setSelected(new Set());
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [repoPath]);
+  // Auto-rescan when the view mounts (sheet opens), but only if we already have data to refresh.
+  // If no prior scan exists, show the intro/splash screen and let the user trigger it.
+  const hasAutoScanned = useRef(false);
+  useEffect(() => {
+    if (!repoPath || hasAutoScanned.current || !classification) return;
+    hasAutoScanned.current = true;
+    fetchClassification();
+  }, [repoPath, classification, fetchClassification]);
 
   const toggleBranch = (branch: string) => {
     setSelected((prev) => {
@@ -96,6 +86,7 @@ export function BranchesView() {
       });
       setDeleteResult(`Deleted ${selected.size} branch${selected.size === 1 ? "" : "es"}.`);
       setConfirmOpen(false);
+      setSelected(new Set());
       await fetchClassification();
     } catch (e) {
       setError(String(e));
@@ -173,15 +164,15 @@ export function BranchesView() {
   return (
     <TooltipProvider delayDuration={400}>
     <div className="flex h-full flex-col">
-      {/* Loading overlay */}
-      {loading && (
+      {/* Loading overlay — only shown for initial scan (no existing data) */}
+      {loading && !classification && (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           Scanning branches...
         </div>
       )}
 
-      {classification && !loading && (
+      {classification && (
         <>
           {/* Summary bar */}
           <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0 flex-wrap">
@@ -198,8 +189,8 @@ export function BranchesView() {
             )}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={fetchClassification}>
-                  <RefreshCw className="h-3.5 w-3.5" />
+                <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={fetchClassification} disabled={loading}>
+                  {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Re-scan branches</TooltipContent>
