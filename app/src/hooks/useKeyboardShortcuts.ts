@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { createContext, useContext, useEffect } from "react";
 
 export interface ShortcutDef {
   /** Key to match (e.g. "f", "Enter", ",") */
@@ -12,6 +12,13 @@ export interface ShortcutDef {
 }
 
 /**
+ * Context that gates keyboard shortcuts to only fire in the active tab.
+ * Components inside an `ActiveTabContext.Provider` will only handle
+ * shortcuts when `isActive` is true.
+ */
+export const ActiveTabContext = createContext<boolean>(true);
+
+/**
  * Registers global keyboard shortcuts. Shortcuts are matched against
  * keydown events; if meta/shift modifiers match and the key matches
  * (case-insensitive), the handler fires and the event is consumed.
@@ -19,9 +26,17 @@ export interface ShortcutDef {
  * Shortcuts are automatically ignored when the active element is an
  * input, textarea, or contenteditable — unless the shortcut uses
  * the meta (Cmd) modifier, which is never normal text input.
+ *
+ * When rendered inside an `ActiveTabContext.Provider`, shortcuts only
+ * fire when `isActive` is true — preventing inactive tabs from
+ * handling keyboard events.
  */
 export function useKeyboardShortcuts(shortcuts: ShortcutDef[]) {
+  const isActive = useContext(ActiveTabContext);
+
   useEffect(() => {
+    if (!isActive) return;
+
     const handler = (e: KeyboardEvent) => {
       // Don't intercept when typing in inputs — but allow any Cmd (meta)
       // combo through, since those are never normal text input (e.g. ⌘⇧M
@@ -38,7 +53,7 @@ export function useKeyboardShortcuts(shortcuts: ShortcutDef[]) {
           !!e.shiftKey === !!s.shift
         ) {
           e.preventDefault();
-          e.stopPropagation();
+          e.stopImmediatePropagation();
           s.handler();
           return;
         }
@@ -46,5 +61,5 @@ export function useKeyboardShortcuts(shortcuts: ShortcutDef[]) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [shortcuts]);
+  }, [shortcuts, isActive]);
 }

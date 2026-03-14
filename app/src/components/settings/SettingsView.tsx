@@ -135,16 +135,35 @@ export function SettingsView() {
                 { keys: "⌘⇧U", action: "Push" },
                 { keys: "⌘⇧L", action: "Pull" },
                 { keys: "⌘⇧F", action: "Fetch" },
-                { keys: "⌘⇧R", action: "Refresh all (fetch + update panels)" },
+                { keys: "⌘R", action: "Refresh active tab" },
+                { keys: "⌘⇧R", action: "Refresh all tabs" },
               ]},
               { category: "Branches", shortcuts: [
                 { keys: "⌘⇧N", action: "New branch" },
                 { keys: "⌘⇧S", action: "Analyze branch safety" },
                 { keys: "⌘⇧T", action: "Stash changes" },
               ]},
+              { category: "Commit", shortcuts: [
+                { keys: "⌘⇧C", action: "Toggle commit bar" },
+                { keys: "⌘⇧A", action: "Generate AI commit message" },
+                { keys: "⌘↵", action: "Submit commit / create PR" },
+                { keys: "⌘⇧↵", action: "Commit & Push" },
+              ]},
+              { category: "Navigation", shortcuts: [
+                { keys: "⌘↑", action: "Jump to top of history" },
+                { keys: "⌘↓", action: "Jump to bottom of history" },
+                { keys: "⇧↑ / ⇧↓", action: "Navigate commit history (global)" },
+                { keys: "↑ / ↓", action: "Navigate files or commits (when panel focused)" },
+              ]},
+              { category: "Tabs", shortcuts: [
+                { keys: "⌘T", action: "New tab" },
+                { keys: "⌘W", action: "Close tab" },
+                { keys: "⌘⇧[", action: "Previous tab" },
+                { keys: "⌘⇧]", action: "Next tab" },
+                { keys: "⌘1–⌘9", action: "Switch to tab by number" },
+              ]},
               { category: "PR Editor", shortcuts: [
                 { keys: "⌘⇧M", action: "Toggle markdown cheatsheet" },
-                { keys: "⌘↵", action: "Submit commit / create PR" },
               ]},
             ].map(({ category, shortcuts }) => (
               <div key={category} className="px-6 py-3">

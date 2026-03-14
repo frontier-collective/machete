@@ -1,0 +1,410 @@
+import { useState, useCallback, useRef, useEffect } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Plus, X, Loader2 } from "lucide-react";
+import type { TabManager } from "@/hooks/useTabManager";
+import logoSvg from "@/assets/machete-logo.svg";
+
+interface TabBarProps {
+  tabManager: TabManager;
+  onAbout?: () => void;
+}
+
+export function TabBar({ tabManager, onAbout }: TabBarProps) {
+  const { tabs, activeTabId, tabStatuses, openTab, closeTab, closeOtherTabs, closeAllTabs, activateTab, moveTab, renameTab } = tabManager;
+
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+
+  // Inline rename
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Pointer-based drag — all mutable state in a single ref to avoid stale closures
+  const dragRef = useRef<{
+    tabId: string;
+    startX: number;
+    fromIndex: number;
+    tabRects: DOMRect[];
+    started: boolean;
+  } | null>(null);
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [dragDeltaX, setDragDeltaX] = useState(0);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+  const tabRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Keep a ref to the latest tabs & moveTab so event listeners always see current values
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const moveTabRef = useRef(moveTab);
+  moveTabRef.current = moveTab;
+
+  // Close context menu on click outside
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handler = () => setContextMenu(null);
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [contextMenu]);
+
+  // Focus input when editing starts
+  useEffect(() => {
+    if (editingTabId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingTabId]);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, tabId });
+  }, []);
+
+  const handleNewTab = useCallback(async () => {
+    const selected = await open({ directory: true, multiple: true });
+    if (!selected) return;
+    const paths = Array.isArray(selected) ? selected : [selected];
+    for (const path of paths) {
+      openTab(path);
+    }
+  }, [openTab]);
+
+  const handleCloseTab = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    closeTab(tabId);
+  }, [closeTab]);
+
+  // ── Inline rename handlers ────────────────────────────────────────
+  const startRename = useCallback((tabId: string) => {
+    const tab = tabsRef.current.find((t) => t.id === tabId);
+    if (!tab) return;
+    setEditingTabId(tabId);
+    setEditValue(tab.customLabel || repoName(tab.repoPath));
+  }, []);
+
+  const commitRename = useCallback(() => {
+    if (!editingTabId) return;
+    const trimmed = editValue.trim();
+    const tab = tabsRef.current.find((t) => t.id === editingTabId);
+    // If the value matches the folder name or is empty, clear the custom label
+    if (!trimmed || (tab && trimmed === repoName(tab.repoPath))) {
+      renameTab(editingTabId, "");
+    } else {
+      renameTab(editingTabId, trimmed);
+    }
+    setEditingTabId(null);
+  }, [editingTabId, editValue, renameTab]);
+
+  const cancelRename = useCallback(() => {
+    setEditingTabId(null);
+  }, []);
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    startRename(tabId);
+  }, [startRename]);
+
+  // ── Compute drop target from cursor position ─────────────────────
+  function calcDropTarget(ds: NonNullable<typeof dragRef.current>, clientX: number): number {
+    const delta = clientX - ds.startX;
+    const dragRect = ds.tabRects[ds.fromIndex];
+    const dragCenter = dragRect.left + dragRect.width / 2 + delta;
+    let target = ds.fromIndex;
+
+    for (let i = 0; i < ds.tabRects.length; i++) {
+      const r = ds.tabRects[i];
+      const center = r.left + r.width / 2;
+      if (i < ds.fromIndex && dragCenter < center) {
+        target = i;
+        break;
+      }
+      if (i > ds.fromIndex && dragCenter > center) {
+        target = i;
+      }
+    }
+
+    return target;
+  }
+
+  // ── Pointer-based drag handlers ───────────────────────────────────
+  const handlePointerDown = useCallback((e: React.PointerEvent, tabId: string, index: number) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest("button")) return;
+    if ((e.target as HTMLElement).closest("input")) return;
+
+    // Snapshot all tab rects
+    const currentTabs = tabsRef.current;
+    const rects: DOMRect[] = currentTabs.map((t) => {
+      const el = tabRefs.current.get(t.id);
+      return el ? el.getBoundingClientRect() : new DOMRect();
+    });
+
+    dragRef.current = {
+      tabId,
+      startX: e.clientX,
+      fromIndex: index,
+      tabRects: rects,
+      started: false,
+    };
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const ds = dragRef.current;
+      if (!ds) return;
+
+      const delta = ev.clientX - ds.startX;
+
+      // 4px dead zone before starting drag
+      if (!ds.started && Math.abs(delta) < 4) return;
+      ds.started = true;
+
+      setDraggingTabId(ds.tabId);
+      setDragDeltaX(delta);
+
+      const target = calcDropTarget(ds, ev.clientX);
+      setDropTargetIndex(target !== ds.fromIndex ? target : null);
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+
+      const ds = dragRef.current;
+      dragRef.current = null;
+      setDraggingTabId(null);
+      setDragDeltaX(0);
+      setDropTargetIndex(null);
+
+      if (ds?.started) {
+        const target = calcDropTarget(ds, ev.clientX);
+        if (target !== ds.fromIndex) {
+          moveTabRef.current(ds.fromIndex, target);
+        }
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+  }, []);
+
+  /** Extract directory name from full path */
+  function repoName(path: string): string {
+    const parts = path.replace(/\/$/, "").split("/");
+    return parts[parts.length - 1] || path;
+  }
+
+  // Context menu actions
+  const handleCopyPath = useCallback(() => {
+    if (!contextMenu) return;
+    const tab = tabs.find((t) => t.id === contextMenu.tabId);
+    if (tab) navigator.clipboard.writeText(tab.repoPath);
+    setContextMenu(null);
+  }, [contextMenu, tabs]);
+
+  const handleMoveLeft = useCallback(() => {
+    if (!contextMenu) return;
+    const idx = tabs.findIndex((t) => t.id === contextMenu.tabId);
+    if (idx > 0) moveTab(idx, idx - 1);
+    setContextMenu(null);
+  }, [contextMenu, tabs, moveTab]);
+
+  const handleMoveRight = useCallback(() => {
+    if (!contextMenu) return;
+    const idx = tabs.findIndex((t) => t.id === contextMenu.tabId);
+    if (idx < tabs.length - 1) moveTab(idx, idx + 1);
+    setContextMenu(null);
+  }, [contextMenu, tabs, moveTab]);
+
+  const handleRenameFromMenu = useCallback(() => {
+    if (!contextMenu) return;
+    startRename(contextMenu.tabId);
+    setContextMenu(null);
+  }, [contextMenu, startRename]);
+
+  /** Start native window drag on mousedown; double-click to toggle maximize.
+   *  Only fires when the click is on empty tab-bar space (not a tab or button). */
+  const handleBarMouseDown = useCallback(async (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    // If the click target is inside a tab, button, or input, let it handle the event
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-tab], button, input")) return;
+    const appWindow = getCurrentWindow();
+    if (e.detail === 2) {
+      if (await appWindow.isMaximized()) {
+        await appWindow.unmaximize();
+      } else {
+        await appWindow.maximize();
+      }
+    } else {
+      await appWindow.startDragging();
+    }
+  }, []);
+
+  if (tabs.length === 0) return null;
+
+  return (
+    <>
+      <div
+        className="flex h-9 items-center border-b bg-background/80 shrink-0 select-none overflow-x-auto pl-[128px]"
+        onMouseDown={handleBarMouseDown}
+      >
+        {/* Tabs */}
+        <div className="flex items-center min-w-0 flex-1">
+          {tabs.map((tab, index) => {
+            const isActive = tab.id === activeTabId;
+            const isDragging = draggingTabId === tab.id;
+            const isDropTarget = dropTargetIndex === index && !isDragging;
+            const isEditing = editingTabId === tab.id;
+            const tabStatus = tabStatuses[tab.id];
+            const displayName = tab.customLabel || repoName(tab.repoPath);
+
+            return (
+              <div
+                key={tab.id}
+                data-tab
+                ref={(el) => { if (el) tabRefs.current.set(tab.id, el); else tabRefs.current.delete(tab.id); }}
+                className={`group relative flex items-center gap-1.5 px-3 h-9 text-xs cursor-pointer border-r border-border/50 max-w-[200px] min-w-[150px] ${
+                  isActive
+                    ? "bg-background text-foreground"
+                    : "bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                } ${isDragging ? "opacity-60 z-50 shadow-lg" : ""}`}
+                style={isDragging ? { transform: `translateX(${dragDeltaX}px)`, transition: "none" } : undefined}
+                onClick={() => { if (!draggingTabId && !isEditing) activateTab(tab.id); }}
+                onContextMenu={(e) => handleContextMenu(e, tab.id)}
+                onPointerDown={(e) => handlePointerDown(e, tab.id, index)}
+                title={tab.repoPath}
+              >
+                {/* Drop insertion indicator — vertical line on the edge closest to the drag source */}
+                {isDropTarget && draggingTabId && (() => {
+                  const fromIdx = tabs.findIndex((t) => t.id === draggingTabId);
+                  const side = index < fromIdx ? "left" : "right";
+                  return (
+                    <div className={`absolute top-1 bottom-1 w-0.5 bg-brand rounded-full z-10 ${side === "left" ? "-left-px" : "-right-px"}`} />
+                  );
+                })()}
+
+                {/* Active indicator */}
+                {isActive && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand" />
+                )}
+
+                {/* Status indicator: spinner when loading, dot when idle */}
+                {tabStatus?.loading ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-muted-foreground shrink-0" />
+                ) : tabStatus?.dirty ? (
+                  <div className="h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" title="Uncommitted changes" />
+                ) : tabStatus?.unpushed ? (
+                  <div className="h-1.5 w-1.5 rounded-full bg-orange-500 shrink-0" title="Unpushed commits" />
+                ) : null}
+
+                {isEditing ? (
+                  <input
+                    ref={editInputRef}
+                    className="truncate flex-1 font-medium bg-transparent border-b border-brand outline-none text-xs px-0 py-0 min-w-0"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename();
+                      if (e.key === "Escape") cancelRename();
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <span
+                    className="truncate flex-1 font-medium"
+                    onDoubleClick={(e) => handleDoubleClick(e, tab.id)}
+                  >
+                    {displayName}
+                  </span>
+                )}
+
+                <button
+                  className={`shrink-0 rounded p-0.5 hover:bg-foreground/10 transition-colors ${
+                    isActive ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
+                  }`}
+                  onClick={(e) => handleCloseTab(e, tab.id)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
+
+          {/* New tab button */}
+          <button
+            className="flex items-center justify-center h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            onClick={handleNewTab}
+            title="New tab"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Logo — right end, opens About dialog */}
+        <button
+          className="flex items-center shrink-0 px-3 h-9 hover:bg-muted/50 transition-colors"
+          onClick={onAbout}
+          title="About Machete"
+        >
+          <img src={logoSvg} alt="Machete" className="h-4 w-4 rounded-sm" />
+        </button>
+      </div>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 min-w-[180px] rounded-md border bg-popover p-1 text-popover-foreground shadow-md text-xs"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            onClick={() => { closeTab(contextMenu.tabId); setContextMenu(null); }}
+          >
+            Close
+          </button>
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            onClick={() => { closeOtherTabs(contextMenu.tabId); setContextMenu(null); }}
+          >
+            Close Others
+          </button>
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            onClick={() => { closeAllTabs(); setContextMenu(null); }}
+          >
+            Close All
+          </button>
+          <div className="my-1 h-px bg-border" />
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            onClick={handleRenameFromMenu}
+          >
+            Rename
+          </button>
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground"
+            onClick={handleCopyPath}
+          >
+            Copy Path
+          </button>
+          <div className="my-1 h-px bg-border" />
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+            disabled={tabs.findIndex((t) => t.id === contextMenu.tabId) === 0}
+            onClick={handleMoveLeft}
+          >
+            Move Left
+          </button>
+          <button
+            className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent hover:text-accent-foreground disabled:opacity-50"
+            disabled={tabs.findIndex((t) => t.id === contextMenu.tabId) === tabs.length - 1}
+            onClick={handleMoveRight}
+          >
+            Move Right
+          </button>
+        </div>
+      )}
+    </>
+  );
+}

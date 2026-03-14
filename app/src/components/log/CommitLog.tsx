@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Loader2, CircleDot } from "lucide-react";
 import { useRepoPath, useStatus, useSelection } from "@/hooks/useRepo";
+import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -287,6 +288,68 @@ export function CommitLog() {
     }
   }, [highlightHash, setSelectedCommitHash, commits, virtualizer]);
 
+  // ── Keyboard navigation ─────────────────────────────────────────
+  // The "effective index" treats uncommitted as -1, commits as 0..N-1
+  const currentIndex = useMemo(() => {
+    if (selectedCommitHash === null) return -1; // uncommitted row
+    return commits.findIndex((c) => c.hash === selectedCommitHash);
+  }, [selectedCommitHash, commits]);
+
+  const navigateLog = useCallback((direction: "up" | "down") => {
+    if (commits.length === 0) return;
+    const minIdx = hasUncommitted ? -1 : 0;
+    const maxIdx = commits.length - 1;
+    const nextIdx = direction === "up"
+      ? Math.max(minIdx, currentIndex - 1)
+      : Math.min(maxIdx, currentIndex + 1);
+
+    if (nextIdx === currentIndex) return;
+
+    if (nextIdx === -1) {
+      setSelectedCommitHash(null);
+      if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    } else {
+      setSelectedCommitHash(commits[nextIdx].hash);
+      virtualizer.scrollToIndex(nextIdx, { align: "auto" });
+    }
+  }, [commits, hasUncommitted, currentIndex, setSelectedCommitHash, virtualizer]);
+
+  const scrollToTop = useCallback(() => {
+    if (hasUncommitted) {
+      setSelectedCommitHash(null);
+    } else if (commits.length > 0) {
+      setSelectedCommitHash(commits[0].hash);
+    }
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [hasUncommitted, commits, setSelectedCommitHash]);
+
+  const scrollToBottom = useCallback(() => {
+    if (commits.length > 0) {
+      setSelectedCommitHash(commits[commits.length - 1].hash);
+      virtualizer.scrollToIndex(commits.length - 1, { align: "end" });
+    }
+  }, [commits, setSelectedCommitHash, virtualizer]);
+
+  const logShortcuts = useMemo<ShortcutDef[]>(() => [
+    { key: "ArrowUp", meta: true, handler: scrollToTop },
+    { key: "ArrowDown", meta: true, handler: scrollToBottom },
+    { key: "ArrowUp", shift: true, handler: () => navigateLog("up") },
+    { key: "ArrowDown", shift: true, handler: () => navigateLog("down") },
+  ], [scrollToTop, scrollToBottom, navigateLog]);
+  useKeyboardShortcuts(logShortcuts);
+
+  // Plain arrow keys when the log panel is focused
+  const handleLogKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return; // let global shortcuts handle
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      navigateLog("up");
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      navigateLog("down");
+    }
+  }, [navigateLog]);
+
   if (!repoPath) return null;
 
   if (loading && commits.length === 0) {
@@ -308,7 +371,7 @@ export function CommitLog() {
   const gridTemplate = `${graphColWidth}px ${GRID_COLS}`;
 
   return (
-    <div className="flex h-full flex-col text-xs">
+    <div className="flex h-full flex-col text-xs outline-none" tabIndex={0} onKeyDown={handleLogKeyDown}>
       {/* Sticky header */}
       <div
         className="grid shrink-0 border-b text-muted-foreground font-medium bg-card z-10"

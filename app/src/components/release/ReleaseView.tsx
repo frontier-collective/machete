@@ -12,11 +12,13 @@ import {
   Tag,
   GitBranch,
   AlertTriangle,
+  Info,
 } from "lucide-react";
 import { useRepoPath, useStatus } from "@/hooks/useRepo";
 import type { ReleasePreview } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
@@ -27,7 +29,14 @@ import {
 
 type BumpType = "patch" | "minor" | "major";
 
-export function ReleaseView() {
+interface ReleaseViewProps {
+  /** Whether the intro was already dismissed this session (survives sheet close/reopen) */
+  introDismissed?: boolean;
+  /** Callback to notify parent that the intro has been dismissed */
+  onIntroDismissed?: () => void;
+}
+
+export function ReleaseView({ introDismissed, onIntroDismissed }: ReleaseViewProps) {
   const { repoPath } = useRepoPath();
   const { status } = useStatus();
   const [preview, setPreview] = useState<ReleasePreview | null>(null);
@@ -36,6 +45,21 @@ export function ReleaseView() {
   const [selected, setSelected] = useState<BumpType>("patch");
   const [copied, setCopied] = useState(false);
   const [hasScanned, setHasScanned] = useState(false);
+
+  // ── Intro splash control ────────────────────────────────────────────
+  const skipIntroKey = `machete:skipReleaseIntro:${repoPath}`;
+  const [skipIntro, setSkipIntro] = useState(() => {
+    try { return localStorage.getItem(skipIntroKey) === "1"; } catch { return false; }
+  });
+  const [introVisible, setIntroVisible] = useState(!skipIntro && !introDismissed);
+
+  const handleSkipIntroChange = (checked: boolean) => {
+    setSkipIntro(checked);
+    try {
+      if (checked) localStorage.setItem(skipIntroKey, "1");
+      else localStorage.removeItem(skipIntroKey);
+    } catch { /* ignore */ }
+  };
 
   const fetchPreview = useCallback(async () => {
     if (!repoPath) return;
@@ -53,12 +77,34 @@ export function ReleaseView() {
     }
   }, [repoPath]);
 
+  const dismissIntro = () => {
+    setIntroVisible(false);
+    onIntroDismissed?.();
+    fetchPreview();
+  };
+
   // Reset when repo changes
   useEffect(() => {
     setPreview(null);
     setHasScanned(false);
     setError(null);
-  }, [repoPath]);
+    // Re-read skipIntro for new repo
+    try {
+      const skip = localStorage.getItem(`machete:skipReleaseIntro:${repoPath}`) === "1";
+      setSkipIntro(skip);
+      setIntroVisible(!skip && !introDismissed);
+    } catch {
+      setSkipIntro(false);
+      setIntroVisible(!introDismissed);
+    }
+  }, [repoPath, introDismissed]);
+
+  // Auto-load preview when skipIntro is true
+  useEffect(() => {
+    if (skipIntro && !hasScanned && !loading && repoPath) {
+      fetchPreview();
+    }
+  }, [skipIntro, hasScanned, loading, repoPath, fetchPreview]);
 
   // Refresh when ⌘⇧R fires
   useEffect(() => {
@@ -94,7 +140,7 @@ export function ReleaseView() {
 
   // ─── Intro screen ──────────────────────────────────────────────
 
-  if (!hasScanned && !loading) {
+  if (introVisible) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-6 px-6">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand/10">
@@ -120,10 +166,17 @@ export function ReleaseView() {
             <span>Safe by design — preview before you release</span>
           </div>
         </div>
-        <Button onClick={fetchPreview} className="mt-2">
+        <Button onClick={dismissIntro} className="mt-2">
           <RefreshCw className="mr-2 h-4 w-4" />
           Load Preview
         </Button>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+          <Checkbox
+            checked={skipIntro}
+            onCheckedChange={(checked) => handleSkipIntroChange(!!checked)}
+          />
+          Don&apos;t show this again
+        </label>
       </div>
     );
   }
@@ -180,18 +233,28 @@ export function ReleaseView() {
                 v{preview.currentVersion}
               </Badge>
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" className="ml-auto h-7" onClick={fetchPreview} disabled={loading}>
-                  {loading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-3.5 w-3.5" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Refresh</TooltipContent>
-            </Tooltip>
+            <div className="flex items-center gap-1 ml-auto">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setIntroVisible(true)}>
+                    <Info className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>About Release</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={fetchPreview} disabled={loading}>
+                    {loading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Refresh</TooltipContent>
+              </Tooltip>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1 text-xs">
