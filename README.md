@@ -189,7 +189,7 @@ machete release major --no-publish
 3. Bumps version (`patch`, `minor`, or `major` — interactive selector if no arg given)
 4. Generates changelog with Claude (or raw git log with `--noai`)
 5. Creates a `release/X.Y.Z` branch, commits, merges to `master`, tags, merges back to `develop`
-6. Prompts to push, create a GitHub release (requires `gh` CLI), and publish to npm
+6. Prompts to push, create a GitHub release (requires `gh` CLI), build and attach the desktop app DMG, and publish to npm
 
 ### `machete prune`
 
@@ -294,8 +294,13 @@ The app version is synced automatically from the root `package.json` — no manu
 | `make app-pkg` | Build `.pkg` installer |
 | `make app-frontend` | Build just the React frontend |
 | `make app-backend` | Compile just the Rust backend |
+| `make app-ci` | CI build with `TARGET` and `BUNDLES` params |
 
 All app targets accept an optional `ARCH` parameter for cross-compilation: `make app-build ARCH=aarch64-apple-darwin`
+
+### CI / Cross-platform releases
+
+Pushing a version tag triggers a GitHub Actions workflow (`.github/workflows/release.yml`) that builds the desktop app for macOS (Silicon + Intel), Linux (x64 + ARM), and Windows (x64 + ARM), then attaches all installers to the GitHub release. See [INSTALLATION.md](INSTALLATION.md) for the full platform matrix.
 
 ## Contributors
 

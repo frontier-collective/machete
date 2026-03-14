@@ -1,5 +1,5 @@
 import { execSync, execFileSync } from "node:child_process";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { BranchSafetyResult } from "./types.js";
@@ -482,6 +482,18 @@ export function createGhRelease(tag: string, title: string, notes: string): void
     encoding: "utf-8",
     stdio: ["pipe", "inherit", "inherit"],
   });
+}
+
+export function uploadGhReleaseAsset(tag: string, filePath: string): void {
+  execSync(`gh release upload "${tag}" "${filePath}"`, { stdio: "inherit" });
+}
+
+export function buildDmg(): string {
+  execSync("make app-dmg", { stdio: "inherit" });
+  const dmgDir = join("app", "src-tauri", "target", "release", "bundle", "dmg");
+  const files = readdirSync(dmgDir).filter((f) => f.endsWith(".dmg"));
+  if (files.length === 0) throw new Error("DMG build succeeded but no .dmg file found");
+  return join(dmgDir, files[0]);
 }
 
 export function npmPublish(): void {

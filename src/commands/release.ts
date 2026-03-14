@@ -15,6 +15,8 @@ import {
   isGhInstalled,
   isGhAuthenticated,
   createGhRelease,
+  uploadGhReleaseAsset,
+  buildDmg,
   npmPublish,
   exec,
 } from "../lib/git.js";
@@ -208,6 +210,20 @@ export async function runRelease(args: ParsedArgs): Promise<void> {
       const releaseNotes = extractReleaseNotes(newVersion);
       createGhRelease(tag, tag, releaseNotes);
       success(`Created GitHub release ${bold(tag)}`);
+
+      // ── Desktop app DMG ───────────────────────────────────────────
+      const shouldBuildDmg = await confirm(`Build and attach desktop app DMG to ${tag}?`, true);
+      if (shouldBuildDmg) {
+        try {
+          info("Building DMG...");
+          const dmgPath = buildDmg();
+          uploadGhReleaseAsset(tag, dmgPath);
+          success(`Attached DMG to release ${bold(tag)}`);
+        } catch (e) {
+          warning(`DMG build/upload failed: ${e instanceof Error ? e.message : String(e)}`);
+          info(`Build manually with: ${dim(`make app-dmg && gh release upload ${tag} app/src-tauri/target/release/bundle/dmg/*.dmg`)}`);
+        }
+      }
     }
   } else if (!isGhInstalled()) {
     warning(`gh CLI not installed — skipping GitHub release.`);

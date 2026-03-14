@@ -199,6 +199,17 @@ app-pkg: ## Build .pkg installer — make app-pkg [ARCH=aarch64-apple-darwin]
 	fi
 	@printf '  $(GREEN)PKG ready → app/src-tauri/target/release/bundle/pkg/$(RESET)\n'
 
+app-ci: ## Build all bundle types for current platform — used by CI
+	@printf '  $(GREEN)Building Tauri app for CI...$(RESET)\n'
+	@if [ -n "$(TARGET)" ]; then \
+		printf '  $(DIM)Target: $(TARGET)$(RESET)\n'; \
+		printf '  $(DIM)Bundles: $(BUNDLES)$(RESET)\n'; \
+		cd app && npm run tauri build -- --target $(TARGET) --bundles $(BUNDLES); \
+	else \
+		cd app && npm run tauri build; \
+	fi
+	@printf '  $(GREEN)CI build complete.$(RESET)\n'
+
 # Catch patch/minor/major as no-op targets so make doesn't error
 patch minor major:
 	@true

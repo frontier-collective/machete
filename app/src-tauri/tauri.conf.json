@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "",
+        "title": "Machete",
         "hiddenTitle": true,
         "width": 1200,
         "height": 800,
@@ -39,7 +39,17 @@
       "icons/icon.icns",
       "icons/icon.ico",
       "icons/icon.png"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    }
   },
   "plugins": {
     "shell": {

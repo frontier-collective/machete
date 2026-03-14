@@ -123,6 +123,40 @@ make app-dmg
 
 Run `make help` for all build targets.
 
+### Releasing
+
+The desktop app is built and attached to GitHub releases in two ways:
+
+#### Automatic (CI)
+
+When `machete release` pushes a version tag (e.g. `v0.3.0`), a GitHub Actions workflow automatically builds the desktop app for all supported platforms and attaches the installers to the release:
+
+| Platform | Architecture | Installer |
+|----------|-------------|-----------|
+| macOS | Apple Silicon (arm64) | `.dmg` |
+| macOS | Intel (x64) | `.dmg` |
+| Linux | x64 | `.deb`, `.AppImage` |
+| Linux | ARM (arm64) | `.deb`, `.AppImage` |
+| Windows | x64 | `.exe` (NSIS), `.msi` |
+| Windows | ARM (arm64) | `.exe` (NSIS) |
+
+The workflow can also be triggered manually from the GitHub Actions tab.
+
+#### Local (from machete release)
+
+The `machete release` command also offers to build and attach a DMG locally. After creating the GitHub release, it prompts:
+
+> *Build and attach desktop app DMG to vX.Y.Z?*
+
+If confirmed, it runs `make app-dmg` and uploads via `gh release upload`. This requires Rust and the Tauri build toolchain on the local machine.
+
+If the build fails, the release continues — it prints the manual command:
+
+```bash
+make app-dmg
+gh release upload vX.Y.Z app/src-tauri/target/release/bundle/dmg/*.dmg
+```
+
 ## Configuration
 
 Machete uses a 4-file configuration system, merged in order:

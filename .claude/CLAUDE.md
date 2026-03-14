@@ -14,6 +14,7 @@ Git toolset — CLI (`@frontier-collective/machete`) + native macOS desktop app 
 - **Dev:** `make app-dev` (Vite hot reload + Rust backend)
 - **Build .app:** `make app-build`
 - **Build .dmg:** `make app-dmg`
+- **CI build:** `make app-ci TARGET=<target> BUNDLES=<bundles>`
 - **All targets:** `make help`
 
 ## Key Decisions
