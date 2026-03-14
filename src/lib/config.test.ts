@@ -17,6 +17,8 @@ let fakeHome: string;
 function createTempGitRepo(): string {
   const dir = mkdtempSync(join(tmpdir(), "machete-test-"));
   execSync("git init", { cwd: dir, stdio: "pipe" });
+  execSync("git config user.email 'test@test.com'", { cwd: dir, stdio: "pipe" });
+  execSync("git config user.name 'Test'", { cwd: dir, stdio: "pipe" });
   execSync("git commit --allow-empty -m 'init'", { cwd: dir, stdio: "pipe" });
   return dir;
 }

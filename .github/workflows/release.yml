@@ -1,0 +1,150 @@
+name: Release Desktop App
+
+on:
+  # Trigger when a version tag is pushed (by machete release)
+  push:
+    tags:
+      - "v*"
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to attach artifacts to (e.g. v0.3.0)"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS Apple Silicon
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+            artifact: "app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
+
+          # macOS Intel (cross-compiled on ARM runner)
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg
+            artifact: "app/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
+
+          # Linux x64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+            artifact: |
+              app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+              app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+
+          # Linux ARM (deb only — AppImage lacks xdg-open on ARM runners)
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: deb
+            artifact: "app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb"
+
+          # Windows x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+            artifact: |
+              app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+              app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+
+          # Windows ARM
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
+            artifact: |
+              app/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            app/package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
+      # Linux: install system dependencies for Tauri + WebKitGTK
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libgtk-3-dev \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev
+
+      # Install npm dependencies for both CLI and app
+      - name: Install dependencies
+        run: |
+          npm ci
+          cd app && npm ci
+
+      # Build the Tauri app for the target platform
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tauriScript: npm run tauri
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+      # Upload artifacts so they can be collected by the upload job
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: machete-${{ matrix.target }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  # Attach all artifacts to the GitHub release
+  upload:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
