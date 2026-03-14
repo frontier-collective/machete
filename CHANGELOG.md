@@ -2,6 +2,19 @@
 
 All notable changes to Machete are documented here.
 
+## [0.5.1] - 2026-03-14
+
+### Features
+
+- Add in-app auto-updater that checks for new versions on launch, on a 30-minute interval, and when the window regains focus — a banner prompts you to download and install with a live progress indicator, then relaunches automatically
+- Add About dialog with a manual "Check for updates" option that surfaces errors when triggered by the user
+- Sign release artifacts to support secure update delivery
+
+### Internal
+
+- Remove the app-build job from the CI workflow now that it is covered by the release pipeline
+
+
 ## [0.5.0] - 2026-03-14
 
 ### Features
