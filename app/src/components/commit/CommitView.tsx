@@ -1040,6 +1040,7 @@ function DiffViewer({ diff, isBinaryHint, fileInfo }: { diff: string; isBinaryHi
   // A file is "new" if it has status A (added) or ? (untracked), or if
   // the diff contains only additions (no deletions or context lines).
   const isNewFile = useMemo(() => {
+    if (fileInfo?.status === "C") return false; // Copies should show green diff, not plain
     if (fileInfo?.status === "A" || fileInfo?.status === "?") return true;
     if (parsed.length === 0) return false;
     return !parsed.some((p) => p.type === "del" || p.type === "ctx");

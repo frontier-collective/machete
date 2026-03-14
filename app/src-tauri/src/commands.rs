@@ -418,6 +418,21 @@ fn normalize_git_rename(s: &str) -> String {
     }
 }
 
+/// Build a synthetic unified diff showing file contents as all additions (new file).
+fn synthetic_new_file_diff(file: &str, contents: &str) -> String {
+    let line_count = contents.lines().count();
+    let mut diff = format!(
+        "diff --git a/{f} b/{f}\nnew file mode 100644\n--- /dev/null\n+++ b/{f}\n@@ -0,0 +1,{lc} @@\n",
+        f = file, lc = line_count
+    );
+    for line in contents.lines() {
+        diff.push('+');
+        diff.push_str(line);
+        diff.push('\n');
+    }
+    diff
+}
+
 /// Extract a single file's diff section from a full `git diff` output.
 /// Each section starts with "diff --git a/... b/..." — we find the one
 /// matching our old/new file pair and return everything up to the next section.
@@ -506,6 +521,13 @@ pub async fn get_file_diff(
                 let full_diff = run_git(&repo_path, &["diff", "-M10%", &ctx, &parent, &hash]);
                 if let Ok(ref full) = full_diff {
                     if let Some(section) = extract_diff_section(full, old_file, new_file) {
+                        if section.contains("copy from") && !section.contains("\n@@") {
+                            if let Ok(contents) = run_git(&repo_path, &["show", &format!("{}:{}", hash, new_file)]) {
+                                if !contents.trim().is_empty() {
+                                    return Ok(synthetic_new_file_diff(new_file, &contents));
+                                }
+                            }
+                        }
                         return Ok(section);
                     }
                 }
@@ -528,6 +550,14 @@ pub async fn get_file_diff(
                 let full_diff = run_git(&repo_path, &["diff", "--cached", "-M10%", "-C", "-C", &ctx]);
                 if let Ok(ref full) = full_diff {
                     if let Some(section) = extract_diff_section(full, old_file, new_file) {
+                        // If section is a copy with no hunks, treat as new file
+                        if section.contains("copy from") && !section.contains("\n@@") {
+                            if let Ok(contents) = run_git(&repo_path, &["show", &format!(":{}", new_file)]) {
+                                if !contents.trim().is_empty() {
+                                    return Ok(synthetic_new_file_diff(new_file, &contents));
+                                }
+                            }
+                        }
                         return Ok(section);
                     }
                 }
@@ -559,6 +589,14 @@ pub async fn get_file_diff(
                 let full_diff = run_git(&repo_path, &["diff", "-M10%", "-C", "-C", &ctx]);
                 if let Ok(ref full) = full_diff {
                     if let Some(section) = extract_diff_section(full, old_file, new_file) {
+                        if section.contains("copy from") && !section.contains("\n@@") {
+                            let file_path = std::path::Path::new(&repo_path).join(new_file);
+                            if let Ok(contents) = std::fs::read_to_string(&file_path) {
+                                if !contents.trim().is_empty() {
+                                    return Ok(synthetic_new_file_diff(new_file, &contents));
+                                }
+                            }
+                        }
                         return Ok(section);
                     }
                 }
