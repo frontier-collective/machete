@@ -15,7 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
-import { useRepoPath, useClassification } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useClassification } from "@/hooks/useRepo";
 import type { BranchSafetyResult } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,7 @@ import {
 
 export function BranchesView() {
   const { repoPath } = useRepoPath();
+  const { refreshStatus } = useStatus();
   const { classification, classificationLoading: loading, fetchClassification } = useClassification();
 
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +90,8 @@ export function BranchesView() {
       setConfirmOpen(false);
       setSelected(new Set());
       await fetchClassification();
-      emit("remote-fetched"); // refresh sidebar branch list
+      refreshStatus();
+      emit("remote-fetched"); // refresh sidebar branch list + commit log
     } catch (e) {
       setError(String(e));
       setConfirmOpen(false);

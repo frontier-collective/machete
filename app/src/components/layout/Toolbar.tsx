@@ -19,6 +19,8 @@ import {
   Search,
   GitBranch,
   Shield,
+  Archive,
+  GitCommitHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -51,6 +53,7 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
   const [pushLoading, setPushLoading] = useState(false);
   const [pullLoading, setPullLoading] = useState(false);
   const [fetchLoading, setFetchLoading] = useState(false);
+  const [stashLoading, setStashLoading] = useState(false);
 
   // Branch switcher
   const [branchMenuOpen, setBranchMenuOpen] = useState(false);
@@ -152,6 +155,20 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
     // Fetch remote first, then broadcast so all panels refresh
     await handleFetch();
     emit("refresh-all");
+  }
+
+  async function handleStash() {
+    if (!repoPath || stashLoading) return;
+    setStashLoading(true);
+    try {
+      await invoke("create_stash", { repoPath, message: "", includeUntracked: true, stagedOnly: false });
+      refreshStatus();
+      emit("remote-fetched"); // refresh sidebar stash list
+    } catch (e) {
+      console.error("Stash failed:", e);
+    } finally {
+      setStashLoading(false);
+    }
   }
 
   // Keyboard shortcuts for push/pull/fetch
@@ -339,6 +356,40 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Fetch<Kbd>⌘⇧F</Kbd></TooltipContent>
+                </Tooltip>
+                <div className="mx-0.5 h-4 w-px bg-border" />
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={handleStash}
+                      disabled={stashLoading || status?.isClean}
+                    >
+                      {stashLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Archive className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Stash changes<Kbd>⌘⇧T</Kbd></TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => emit("toggle-commit-bar")}
+                    >
+                      <GitCommitHorizontal className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Commit<Kbd>⌘⇧C</Kbd></TooltipContent>
                 </Tooltip>
               </div>
             </div>

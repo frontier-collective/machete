@@ -7,6 +7,13 @@ import { useRepoPath, useStatus, useSelection } from "@/hooks/useRepo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -25,6 +32,8 @@ export function CommitLog() {
   const { status, refreshStatus } = useStatus();
   const { selectedBranch, selectedCommitHash, setSelectedCommitHash } = useSelection();
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [cherryPickLoading, setCherryPickLoading] = useState<string | null>(null);
+  const [cherryPickResult, setCherryPickResult] = useState<{ success: boolean; message: string } | null>(null);
   const [detachConfirm, setDetachConfirm] = useState<CommitLogEntry | null>(null);
   const [commits, setCommits] = useState<CommitLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -167,6 +176,22 @@ export function CommitLog() {
     // No local branch → will detach HEAD. Show confirmation.
     setDetachConfirm(commit);
   }, [repoPath, checkoutLoading, currentHeadHash, getCheckoutBranch, doCheckout]);
+
+  const handleCherryPick = useCallback(async (commit: CommitLogEntry) => {
+    if (!repoPath || cherryPickLoading) return;
+    setCherryPickLoading(commit.hash);
+    setCherryPickResult(null);
+    try {
+      await invoke("cherry_pick", { repoPath, commitHash: commit.hash });
+      setCherryPickResult({ success: true, message: `Cherry-picked ${commit.shortHash}: ${commit.message}` });
+      refreshStatus();
+      fetchLog();
+    } catch (e) {
+      setCherryPickResult({ success: false, message: String(e) });
+    } finally {
+      setCherryPickLoading(null);
+    }
+  }, [repoPath, cherryPickLoading, refreshStatus, fetchLog]);
 
   // Compute graph layout from commits
   const baseGraphRows = useMemo(() => computeGraphLayout(commits), [commits]);
@@ -350,15 +375,30 @@ export function CommitLog() {
                 gridTemplate={gridTemplate}
                 isSelected={commit.hash === selectedCommitHash}
                 isHighlighted={commit.hash === highlightHash}
+                isHeadCommit={commit.hash === currentHeadHash}
                 showUncommittedPassThrough={!!(hasUncommitted && i < headCommitIndex)}
                 showUncommittedCurve={!!(hasUncommitted && i === headCommitIndex)}
                 onClick={() => setSelectedCommitHash(commit.hash)}
                 onDoubleClick={() => handleDoubleClick(commit)}
+                onCherryPick={() => handleCherryPick(commit)}
+                cherryPickLoading={cherryPickLoading === commit.hash}
               />
             );
           })}
         </div>
       </div>
+
+      {/* Cherry-pick result banner */}
+      {cherryPickResult && (
+        <div className={`flex items-center gap-2 px-3 py-1.5 text-xs shrink-0 ${
+          cherryPickResult.success
+            ? "bg-green-500/10 text-green-700 dark:text-green-400"
+            : "bg-destructive/10 text-destructive"
+        }`}>
+          <span className="flex-1 truncate">{cherryPickResult.message}</span>
+          <button onClick={() => setCherryPickResult(null)} className="shrink-0 font-medium hover:opacity-70">Dismiss</button>
+        </div>
+      )}
 
       {/* Detached HEAD confirmation dialog */}
       <Dialog open={!!detachConfirm} onOpenChange={(open) => { if (!open) setDetachConfirm(null); }}>
@@ -408,10 +448,13 @@ interface CommitRowProps {
   gridTemplate: string;
   isSelected: boolean;
   isHighlighted: boolean;
+  isHeadCommit: boolean;
   showUncommittedPassThrough: boolean;
   showUncommittedCurve: boolean;
   onClick: () => void;
   onDoubleClick?: () => void;
+  onCherryPick?: () => void;
+  cherryPickLoading?: boolean;
 }
 
 const CommitRow = memo(function CommitRow({
@@ -422,12 +465,15 @@ const CommitRow = memo(function CommitRow({
   gridTemplate,
   isSelected,
   isHighlighted,
+  isHeadCommit,
   showUncommittedPassThrough,
   showUncommittedCurve,
   onClick,
   onDoubleClick,
+  onCherryPick,
+  cherryPickLoading,
 }: CommitRowProps) {
-  return (
+  const row = (
     <div
       className={`grid cursor-pointer ${
         isSelected
@@ -470,6 +516,38 @@ const CommitRow = memo(function CommitRow({
         {formatDate(commit.date)}
       </div>
     </div>
+  );
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        {row}
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          disabled={isHeadCommit || !!cherryPickLoading}
+          onClick={() => onCherryPick?.()}
+        >
+          {cherryPickLoading ? "Cherry-picking..." : `Cherry-pick ${commit.shortHash}`}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onClick={() => navigator.clipboard.writeText(commit.hash)}
+        >
+          Copy full hash
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => navigator.clipboard.writeText(commit.shortHash)}
+        >
+          Copy short hash
+        </ContextMenuItem>
+        <ContextMenuItem
+          onClick={() => navigator.clipboard.writeText(commit.message)}
+        >
+          Copy message
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 });
 

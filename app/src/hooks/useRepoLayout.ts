@@ -18,6 +18,7 @@ export interface RepoLayout {
   branchesOpen: boolean;
   remotesOpen: boolean;
   tagsOpen: boolean;
+  stashesOpen: boolean;
   expandedRemotes: string[];
   expandedFolders: string[];
 
@@ -36,6 +37,7 @@ const DEFAULTS: RepoLayout = {
   branchesOpen: true,
   remotesOpen: false,
   tagsOpen: false,
+  stashesOpen: false,
   expandedRemotes: [],
   expandedFolders: [],
   contextLines: 3,

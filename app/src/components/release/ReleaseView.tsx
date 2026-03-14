@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   Rocket,
   Loader2,
@@ -58,6 +59,12 @@ export function ReleaseView() {
     setHasScanned(false);
     setError(null);
   }, [repoPath]);
+
+  // Refresh when ⌘⇧R fires
+  useEffect(() => {
+    const unlisten = listen("refresh-all", () => { if (hasScanned) fetchPreview(); });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [fetchPreview, hasScanned]);
 
   const command = `machete release ${selected}`;
 

@@ -16,6 +16,9 @@ import {
   ArrowDown,
   Plus,
   MonitorSmartphone,
+  Archive,
+  Play,
+  Trash2,
 } from "lucide-react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useRepoPath, useStatus, useSelection, useLayout, useClassification } from "@/hooks/useRepo";
@@ -36,9 +39,19 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { CreateBranchDialog } from "@/components/branches/CreateBranchDialog";
 import { MergeRebaseDialog, type MergeMode } from "@/components/branches/MergeRebaseDialog";
-import type { BranchInfo, RemoteInfo, ConfigEntry } from "@/types";
+import type { BranchInfo, RemoteInfo, ConfigEntry, StashEntry } from "@/types";
 
 export function RepoSidebar({
   width,
@@ -55,13 +68,16 @@ export function RepoSidebar({
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [stashes, setStashes] = useState<StashEntry[]>([]);
   const [protectedBranches, setProtectedBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [stashLoading, setStashLoading] = useState<string | null>(null);
 
   // Section open/close state from persisted layout
   const branchesOpen = layout.branchesOpen;
   const remotesOpen = layout.remotesOpen;
   const tagsOpen = layout.tagsOpen;
+  const stashesOpen = layout.stashesOpen;
   const expandedRemotes = useMemo(() => new Set(layout.expandedRemotes), [layout.expandedRemotes]);
   const expandedFolders = useMemo(() => new Set(layout.expandedFolders), [layout.expandedFolders]);
 
@@ -80,19 +96,28 @@ export function RepoSidebar({
   const [mergeDialogMode, setMergeDialogMode] = useState<MergeMode>("merge");
   const [mergeDialogBranch, setMergeDialogBranch] = useState<string | null>(null);
 
+  // Stash dialog state
+  const [stashApplyConfirm, setStashApplyConfirm] = useState<StashEntry | null>(null);
+  const [stashDropConfirm, setStashDropConfirm] = useState<StashEntry | null>(null);
+  const [deleteAfterApply, setDeleteAfterApply] = useState(() => {
+    try { return localStorage.getItem("machete:stash-delete-after-apply") !== "false"; } catch { return true; }
+  });
+
   const fetchSidebarData = useCallback(async () => {
     if (!repoPath) return;
     setLoading(true);
     try {
-      const [b, r, t, cfg] = await Promise.all([
+      const [b, r, t, s, cfg] = await Promise.all([
         invoke<BranchInfo[]>("get_branches", { repoPath }),
         invoke<RemoteInfo[]>("get_remotes", { repoPath }),
         invoke<string[]>("get_tags", { repoPath }),
+        invoke<StashEntry[]>("list_stashes", { repoPath }),
         invoke<ConfigEntry[]>("get_config_list", { repoPath }),
       ]);
       setBranches(b);
       setRemotes(r);
       setTags(t);
+      setStashes(s);
       const pb = cfg.find((e) => e.key === "protectedBranches");
       setProtectedBranches(
         Array.isArray(pb?.value) ? (pb.value as string[]) : ["main", "master", "develop"]
@@ -173,6 +198,73 @@ export function RepoSidebar({
     return protectedBranches.includes(branchName);
   };
 
+  const handleStashApplyDirect = async (stashRef: string) => {
+    if (!repoPath || stashLoading) return;
+    setStashLoading(stashRef);
+    try {
+      await invoke("apply_stash", { repoPath, stashRef, pop: deleteAfterApply });
+      refreshStatus();
+      fetchSidebarData();
+    } catch (e) {
+      onError?.(String(e));
+    } finally {
+      setStashLoading(null);
+    }
+  };
+
+  const handleStashApplyConfirmed = async () => {
+    if (!repoPath || stashLoading || !stashApplyConfirm) return;
+    const stashRef = stashApplyConfirm.ref;
+    setStashApplyConfirm(null);
+    setStashLoading(stashRef);
+    try {
+      await invoke("apply_stash", { repoPath, stashRef, pop: deleteAfterApply });
+      refreshStatus();
+      fetchSidebarData();
+    } catch (e) {
+      onError?.(String(e));
+    } finally {
+      setStashLoading(null);
+    }
+  };
+
+  const handleStashDropDirect = async (stashRef: string) => {
+    if (!repoPath || stashLoading) return;
+    setStashLoading(stashRef);
+    try {
+      await invoke("drop_stash", { repoPath, stashRef });
+      fetchSidebarData();
+    } catch (e) {
+      onError?.(String(e));
+    } finally {
+      setStashLoading(null);
+    }
+  };
+
+  const handleStashDropConfirmed = async () => {
+    if (!repoPath || stashLoading || !stashDropConfirm) return;
+    const stashRef = stashDropConfirm.ref;
+    setStashDropConfirm(null);
+    handleStashDropDirect(stashRef);
+  };
+
+  const toggleDeleteAfterApply = (checked: boolean) => {
+    setDeleteAfterApply(checked);
+    try { localStorage.setItem("machete:stash-delete-after-apply", String(checked)); } catch {}
+  };
+
+  const handleCreateStash = async () => {
+    if (!repoPath) return;
+    try {
+      await invoke("create_stash", { repoPath, message: "", includeUntracked: true, stagedOnly: false });
+      refreshStatus();
+      fetchSidebarData();
+      updateLayout({ stashesOpen: true });
+    } catch (e) {
+      onError?.(String(e));
+    }
+  };
+
   const toggleRemote = (name: string) => {
     const next = new Set(expandedRemotes);
     if (next.has(name)) next.delete(name);
@@ -204,6 +296,7 @@ export function RepoSidebar({
     () => [
       { key: "n", meta: true, shift: true, handler: () => handleCreateBranch(status?.branch ?? "HEAD") }, // ⌘⇧N — New branch
       { key: "s", meta: true, shift: true, handler: () => handleAnalyzeSafety() },                        // ⌘⇧S — Analyze safety
+      { key: "t", meta: true, shift: true, handler: handleCreateStash },                                   // ⌘⇧T — Stash changes
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [status?.branch, repoPath, safetyLoading]
@@ -241,6 +334,7 @@ export function RepoSidebar({
             <SectionHeader
               icon={GitBranch}
               label="Branches"
+              count={branches.length}
               open={branchesOpen}
               onToggle={() => updateLayout({ branchesOpen: !branchesOpen })}
               action={
@@ -384,6 +478,77 @@ export function RepoSidebar({
                 )}
               </div>
             )}
+
+            {/* Stashes */}
+            <div className="mt-4" />
+            <SectionHeader
+              icon={Archive}
+              label="Stashes"
+              count={stashes.length}
+              open={stashesOpen}
+              onToggle={() => updateLayout({ stashesOpen: !stashesOpen })}
+            />
+            {stashesOpen && (
+              <div>
+                {stashes.length === 0 ? (
+                  <div className="py-1 text-xs text-muted-foreground/60" style={{ paddingLeft: 34 }}>No stashes</div>
+                ) : (
+                  stashes.map((stash) => (
+                    <ContextMenu key={stash.ref}>
+                      <ContextMenuTrigger asChild>
+                        <div
+                          className="group grid w-full items-center rounded-sm py-0.5 text-[14px] text-muted-foreground hover:text-foreground hover:bg-accent"
+                          style={{ paddingLeft: 34, paddingRight: 8, gridTemplateColumns: "1fr auto" }}
+                        >
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="truncate min-w-0">
+                                <span className="text-muted-foreground/60 text-[12px] font-mono">{stash.index}</span>
+                                {" "}
+                                {stash.message}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="text-xs max-w-[300px]">{stash.message}</TooltipContent>
+                          </Tooltip>
+                          <span className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ml-1">
+                            {stashLoading === stash.ref ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <>
+                                <button
+                                  className="h-4 w-4 flex items-center justify-center rounded hover:bg-accent"
+                                  onClick={() => handleStashApplyDirect(stash.ref)}
+                                >
+                                  <Play className="h-2.5 w-2.5" />
+                                </button>
+                                <button
+                                  className="h-4 w-4 flex items-center justify-center rounded hover:bg-destructive/20 text-destructive"
+                                  onClick={() => handleStashDropDirect(stash.ref)}
+                                >
+                                  <Trash2 className="h-2.5 w-2.5" />
+                                </button>
+                              </>
+                            )}
+                          </span>
+                        </div>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem onClick={() => setStashApplyConfirm(stash)}>
+                          Apply stash
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => setStashDropConfirm(stash)}
+                        >
+                          Delete stash
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </ScrollArea>
       )}
@@ -438,6 +603,48 @@ export function RepoSidebar({
         protectedBranches={protectedBranches}
         onCompleted={() => { fetchSidebarData(); refreshStatus(); }}
       />
+
+      {/* Stash Apply Confirmation */}
+      <Dialog open={!!stashApplyConfirm} onOpenChange={(open) => { if (!open) setStashApplyConfirm(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apply Stash</DialogTitle>
+            <DialogDescription>
+              Apply stash {stashApplyConfirm?.index}: {stashApplyConfirm?.message}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2 py-2">
+            <Checkbox
+              id="delete-after-apply"
+              checked={deleteAfterApply}
+              onCheckedChange={(checked) => toggleDeleteAfterApply(!!checked)}
+            />
+            <Label htmlFor="delete-after-apply" className="text-sm cursor-pointer">
+              Delete stash after applying
+            </Label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStashApplyConfirm(null)}>Cancel</Button>
+            <Button onClick={handleStashApplyConfirmed}>Apply</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Stash Drop Confirmation */}
+      <Dialog open={!!stashDropConfirm} onOpenChange={(open) => { if (!open) setStashDropConfirm(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Stash</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete stash {stashDropConfirm?.index}: {stashDropConfirm?.message}? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStashDropConfirm(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleStashDropConfirmed}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
     </TooltipProvider>
   );
@@ -542,37 +749,37 @@ function BranchTreeView({
             <ContextMenu key={b.name}>
               <ContextMenuTrigger asChild>
                 <button
-                  className={`flex w-full items-center gap-2 rounded-sm py-0.5 text-[14px] text-left outline-none ${
+                  className={`grid w-full items-center rounded-sm py-0.5 text-[14px] text-left outline-none ${
                     b.current
                       ? "font-semibold text-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
                   } ${isChecking ? "opacity-50" : ""}`}
-                  style={{ paddingLeft: `${basePad + depth * 14}px`, paddingRight: 8 }}
+                  style={{ paddingLeft: `${basePad + depth * 14}px`, paddingRight: 8, gridTemplateColumns: "auto 1fr auto" }}
                   onClick={(e) => { if (e.button === 0) onSelect(b.name); }}
                   onDoubleClick={() => !b.current && onCheckout(b.name)}
                 >
                   {showDirtyDot ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 shrink-0" />
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500 shrink-0 mr-2" />
                       </TooltipTrigger>
                       <TooltipContent side="right" className="text-xs">Uncommitted changes</TooltipContent>
                     </Tooltip>
                   ) : safetyDot ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${safetyDot} shrink-0`} />
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${safetyDot} shrink-0 mr-2`} />
                       </TooltipTrigger>
                       <TooltipContent side="right" className="text-xs">
                         {safetyDot.includes("green") ? "Safe to delete" : safetyDot.includes("blue") ? "Protected" : "Unsafe to delete"}
                       </TooltipContent>
                     </Tooltip>
                   ) : (
-                    <span className="inline-block h-1.5 w-1.5 shrink-0" />
+                    <span className="inline-block h-1.5 w-1.5 shrink-0 mr-2" />
                   )}
-                  <span className="truncate">{node.name}</span>
+                  <span className="truncate min-w-0">{node.name}</span>
                   {/* Right side: loading spinner, padlock, local-only, or ahead/behind */}
-                  <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                  <span className="flex items-center gap-1.5 shrink-0 ml-1">
                     {isChecking && <Loader2 className="h-3 w-3 animate-spin" />}
                     {isProtected && (
                       <Tooltip>
@@ -847,11 +1054,14 @@ function SectionHeader({
         )}
         <Icon className="h-3.5 w-3.5 shrink-0" />
         <span>{label}</span>
-        {count !== undefined && (
-          <span className="ml-auto font-normal text-muted-foreground/60">{count}</span>
+        {count !== undefined && !action && (
+          <span className="ml-auto font-bold text-muted-foreground/60">{count}</span>
         )}
       </button>
-      {action && <div className="pr-2">{action}</div>}
+      {action && <div className="pr-1">{action}</div>}
+      {count !== undefined && action && (
+        <span className="pr-3 text-xs font-bold text-muted-foreground/60">{count}</span>
+      )}
     </div>
   );
 }

@@ -290,11 +290,12 @@ pub async fn get_commit_context(repo_path: String) -> Result<Value, String> {
         for line in untracked_output.lines() {
             let file = line.trim();
             if !file.is_empty() && !unstaged_names.contains(file) {
+                let is_binary = is_binary_file(file);
                 unstaged.push(serde_json::json!({
                     "file": file,
                     "added": 0,
                     "removed": 0,
-                    "binary": false,
+                    "binary": is_binary,
                     "status": "?"
                 }));
             }
@@ -393,6 +394,29 @@ fn expand_rename_paths(files: &[String]) -> Vec<String> {
         }
     }
     expanded
+}
+
+/// Detect binary files by extension (for untracked files not yet in git's index).
+fn is_binary_file(path: &str) -> bool {
+    let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
+    matches!(ext.as_str(),
+        // Images
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "ico" | "webp" | "tiff" | "tif" | "svg" |
+        // Archives
+        "zip" | "gz" | "tar" | "bz2" | "xz" | "7z" | "rar" | "zst" |
+        // Documents
+        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" |
+        // Fonts
+        "woff" | "woff2" | "ttf" | "otf" | "eot" |
+        // Media
+        "mp3" | "mp4" | "avi" | "mov" | "mkv" | "flac" | "wav" | "ogg" | "webm" |
+        // Executables / libraries
+        "exe" | "dll" | "so" | "dylib" | "bin" | "o" | "a" | "lib" |
+        // Databases
+        "db" | "sqlite" | "sqlite3" |
+        // Other binary
+        "dat" | "class" | "jar" | "war" | "pyc" | "pyo" | "wasm"
+    )
 }
 
 /// Normalize git's compact rename notation: "{prefix/}{old => new}{/suffix}"
@@ -1415,5 +1439,111 @@ pub async fn get_commit_detail(repo_path: String, hash: String) -> Result<Value,
             "date": date,
             "files": files,
         }))
+    }).await
+}
+
+// ─── Stash management ───────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_stashes(repo_path: String) -> Result<Value, String> {
+    off_main(move || {
+        let output = run_git(
+            &repo_path,
+            &["stash", "list", "--format=%gd|||%s|||%ai"],
+        )
+        .unwrap_or_default();
+
+        let stashes: Vec<Value> = output
+            .lines()
+            .filter(|l| !l.is_empty())
+            .enumerate()
+            .map(|(i, line)| {
+                let parts: Vec<&str> = line.splitn(3, "|||").collect();
+                let stash_ref = parts.first().unwrap_or(&"").to_string();
+                let message = parts.get(1).unwrap_or(&"").to_string();
+                let date = parts.get(2).unwrap_or(&"").to_string();
+                serde_json::json!({
+                    "index": i,
+                    "ref": stash_ref,
+                    "message": message,
+                    "date": date,
+                })
+            })
+            .collect();
+
+        Ok(serde_json::json!(stashes))
+    }).await
+}
+
+#[tauri::command]
+pub async fn create_stash(
+    repo_path: String,
+    message: String,
+    include_untracked: bool,
+    staged_only: bool,
+) -> Result<String, String> {
+    off_main(move || {
+        let mut args = vec!["stash", "push"];
+        if !message.is_empty() {
+            args.push("-m");
+            args.push(&message);
+        }
+        if staged_only {
+            args.push("--staged");
+        } else if include_untracked {
+            args.push("-u");
+        }
+        run_git(&repo_path, &args)?;
+        Ok("Stash created".to_string())
+    }).await
+}
+
+#[tauri::command]
+pub async fn apply_stash(
+    repo_path: String,
+    stash_ref: String,
+    pop: bool,
+) -> Result<String, String> {
+    off_main(move || {
+        let sub = if pop { "pop" } else { "apply" };
+        run_git(&repo_path, &["stash", sub, &stash_ref])?;
+        let verb = if pop { "Popped" } else { "Applied" };
+        Ok(format!("{} {}", verb, stash_ref))
+    }).await
+}
+
+#[tauri::command]
+pub async fn drop_stash(repo_path: String, stash_ref: String) -> Result<String, String> {
+    off_main(move || {
+        run_git(&repo_path, &["stash", "drop", &stash_ref])?;
+        Ok(format!("Dropped {}", stash_ref))
+    }).await
+}
+
+// ─── Cherry-pick ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn cherry_pick(repo_path: String, commit_hash: String) -> Result<Value, String> {
+    off_main(move || {
+        match run_git(&repo_path, &["cherry-pick", &commit_hash]) {
+            Ok(output) => Ok(serde_json::json!({
+                "success": true,
+                "message": output,
+            })),
+            Err(e) => {
+                // Check if the failure is due to conflicts
+                let conflicts = get_conflict_list(&repo_path);
+                if !conflicts.is_empty() {
+                    Ok(serde_json::json!({
+                        "success": false,
+                        "conflicts": conflicts,
+                        "message": "Cherry-pick conflicts detected",
+                        "operation": "cherry-pick",
+                    }))
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }).await
 }

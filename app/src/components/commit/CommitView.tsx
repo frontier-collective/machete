@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { Wand2, Loader2, ChevronDown } from "lucide-react";
+import { emit, listen } from "@tauri-apps/api/event";
+import { Wand2, Loader2, ChevronDown, Archive } from "lucide-react";
 import { useRepoPath, useStatus, useSelection, useLayout } from "@/hooks/useRepo";
 import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import {
@@ -367,6 +367,8 @@ function StagingView({ repoPath }: { repoPath: string }) {
   const [generating, setGenerating] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [commitBarOpen, setCommitBarOpen] = useState(false);
+  const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Resizable panel sizes from persisted layout
   const stagedPct = layout.stagingStagedPct;
@@ -446,6 +448,19 @@ function StagingView({ repoPath }: { repoPath: string }) {
       unlisten.then((fn) => fn());
     };
   }, [fetchContext]);
+
+  // Listen for toolbar commit button event
+  useEffect(() => {
+    const unlisten = listen("toggle-commit-bar", () => {
+      setCommitBarOpen((prev) => {
+        if (!prev) {
+          setTimeout(() => commitTextareaRef.current?.focus(), 0);
+        }
+        return !prev;
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
 
   const contextLines = layout.contextLines;
 
@@ -577,6 +592,20 @@ function StagingView({ repoPath }: { repoPath: string }) {
     }
   }
 
+  async function handleStashStaged() {
+    if (!repoPath) return;
+    try {
+      await invoke("create_stash", { repoPath, message: "", includeUntracked: false, stagedOnly: true });
+      setSelectedFile(null);
+      setDiff("");
+      fetchContext();
+      refreshStatus();
+      emit("remote-fetched"); // refresh sidebar stash list
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   const staged = context?.staged ?? [];
   const unstaged = context?.unstaged ?? [];
   const canCommit = staged.length > 0 && message.trim().length > 0 && !committing;
@@ -584,12 +613,18 @@ function StagingView({ repoPath }: { repoPath: string }) {
   // Keyboard shortcuts for commit actions (must be before any early returns)
   const commitShortcuts = useMemo<ShortcutDef[]>(
     () => [
+      { key: "c", meta: true, shift: true, handler: () => {                                          // ⌘⇧C — Toggle commit bar
+        setCommitBarOpen((prev) => {
+          if (!prev) setTimeout(() => commitTextareaRef.current?.focus(), 0);
+          return !prev;
+        });
+      }},
       { key: "Enter", meta: true, handler: () => { if (canCommit) handleCommit(false); } },         // ⌘↵ — Commit
       { key: "Enter", meta: true, shift: true, handler: () => { if (canCommit) handleCommit(true); } }, // ⌘⇧↵ — Commit & Push
-      { key: "g", meta: true, shift: true, handler: () => { if (staged.length > 0) handleGenerate(); } }, // ⌘⇧G — Generate AI
+      { key: "a", meta: true, shift: true, handler: () => { if (commitBarOpen && staged.length > 0) handleGenerate(); } }, // ⌘⇧A — Generate AI
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canCommit, staged.length, generating]
+    [canCommit, staged.length, generating, commitBarOpen]
   );
   useKeyboardShortcuts(commitShortcuts);
 
@@ -627,16 +662,28 @@ function StagingView({ repoPath }: { repoPath: string }) {
                   <Badge variant="safe" className="ml-2">{staged.length}</Badge>
                 )}
               </h3>
-              {staged.length > 0 && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleUnstageAll}>
-                      Unstage All
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Move all files back to unstaged</TooltipContent>
-                </Tooltip>
-              )}
+              <span className="flex items-center gap-1">
+                {staged.length > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleUnstageAll}>
+                        Unstage All
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Move all files back to unstaged</TooltipContent>
+                  </Tooltip>
+                )}
+                {staged.length > 0 && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={handleStashStaged}>
+                        <Archive className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Stash staged files</TooltipContent>
+                  </Tooltip>
+                )}
+              </span>
             </div>
             <ScrollArea className="flex-1 min-h-0">
               <div className="px-3 pb-2">
@@ -729,7 +776,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
                     Loading diff...
                   </div>
                 ) : (
-                  <DiffViewer diff={diff} fileInfo={[...staged, ...unstaged].find((f) => f.file === selectedFile)} />
+                  <DiffViewer diff={diff} isBinaryHint={[...staged, ...unstaged].find((f) => f.file === selectedFile)?.binary} fileInfo={[...staged, ...unstaged].find((f) => f.file === selectedFile)} />
                 )}
               </div>
             </>
@@ -742,21 +789,26 @@ function StagingView({ repoPath }: { repoPath: string }) {
       </div>
 
       {/* Draggable divider above commit bar */}
-      <div
-        className="h-1 shrink-0 cursor-row-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
-        onMouseDown={bottomDragHandle}
-      />
+      {commitBarOpen && (
+        <div
+          className="h-1 shrink-0 cursor-row-resize bg-transparent hover:bg-brand/30 active:bg-brand/50 transition-colors"
+          onMouseDown={bottomDragHandle}
+        />
+      )}
 
       {/* Bottom bar - Commit controls */}
+      {commitBarOpen && (
       <div
         className="flex items-end gap-3 shrink-0"
         style={{ height: `${bottomHeight}px` }}
       >
         <Textarea
-          placeholder="Commit message..."
+          ref={commitTextareaRef}
+          placeholder={generating ? "Generating commit message..." : "Commit message..."}
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          className="flex-1 h-full resize-none text-xs focus-visible:ring-brand focus-visible:border-brand"
+          disabled={generating}
+          className="flex-1 h-full resize-none text-xs focus-visible:ring-brand focus-visible:border-brand disabled:opacity-60"
         />
         <div className="flex flex-col gap-2">
           <Tooltip>
@@ -775,7 +827,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
                 Generate with AI
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Generate commit message<Kbd>⌘⇧G</Kbd></TooltipContent>
+            <TooltipContent>Generate commit message<Kbd>⌘⇧A</Kbd></TooltipContent>
           </Tooltip>
           <div className="flex gap-2">
             <Tooltip>
@@ -807,6 +859,7 @@ function StagingView({ repoPath }: { repoPath: string }) {
           </div>
         </div>
       </div>
+      )}
     </div>
     </TooltipProvider>
   );
@@ -989,7 +1042,7 @@ function parseDiff(diff: string, isBinaryHint?: boolean): ParsedDiff {
   const isBinary = rawLines.some(
     (l) => l.startsWith("Binary files ") || l.startsWith("GIT binary patch")
   );
-  if (isBinary) {
+  if (isBinary || isBinaryHint) {
     return { status: "binary", parsed: [], showBothGutters: false };
   }
 

@@ -48,6 +48,11 @@ pub fn run() {
             commands::continue_merge_or_rebase,
             commands::check_merge_state,
             commands::get_commit_detail,
+            commands::list_stashes,
+            commands::create_stash,
+            commands::apply_stash,
+            commands::drop_stash,
+            commands::cherry_pick,
             watcher::watch_repo,
             watcher::unwatch_repo,
         ])

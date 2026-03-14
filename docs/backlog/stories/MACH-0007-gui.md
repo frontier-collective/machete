@@ -392,28 +392,51 @@ When merge or rebase hits conflicts:
 - **Rebase warning** — if branch has been pushed and diverges from remote, show force-push warning before allowing rebase.
 - **Abort is always available** — prominent abort button during conflict resolution. Never leave the user stuck in a half-merged state.
 
-### Phase 3: Multi-repo & workspaces
+### Phase 3: Stash management & cherry-pick
+
+Focus: essential git operations missing from the GUI.
+
+#### Stash management
+- [x] Rust backend: `list_stashes`, `create_stash`, `apply_stash`, `drop_stash` commands
+- [x] Sidebar: "Stashes" section (collapsible, below Tags)
+- [x] Stash list: message, age, file count per stash
+- [x] Quick actions: apply, pop, drop (with confirmation for drop)
+- [x] Create stash: toolbar button or `⌘⇧T` — message input, include-untracked toggle
+- [x] Stash detail: click a stash to see its diff in the bottom panel
+
+#### Cherry-pick
+- [x] Rust backend: `cherry_pick` command
+- [x] Commit log: right-click context menu → "Cherry-pick this commit"
+- [x] Conflict handling: reuse existing merge/rebase conflict resolution UI
+- [x] Success feedback: toast/banner showing cherry-picked commit hash
+
+#### Bug fixes (Phase 3)
+- [x] Prune triggers sidebar + commit log refresh after deleting branches
+- [x] `⌘⇧R` refresh-all fetches remote and broadcasts to all panels (PR list, sidebar, log)
+- [x] PR splash correctly distinguishes open/draft/merged/closed states
+- [x] PR view always shows splash on sheet open, list state cached separately
+- [x] Release keyboard shortcut changed from `⌘⇧E` to `⌘⇧X` (frees `⌘⇧R` conflict)
+
+### Phase 4: Multi-repo & workspaces
 
 - [ ] Tabbed interface for multiple repos (repo selector becomes tab bar)
 - [ ] Workspace save/restore (remember which repos were open)
 - [ ] Cross-repo branch overview (e.g. "which repos have uncommitted work?")
 - [ ] Drag-and-drop tab reordering
-
-### Phase 4: Release & advanced workflows
-
-- [ ] Visual release flow (version picker, changelog preview, progress indicators)
-- [ ] Interactive rebase
-- [ ] Cherry-pick with visual commit selection
-- [ ] Stash management (sidebar section + stash panel)
-- [ ] PR integration (GitHub, Bitbucket) — view, create, merge
+- [ ] Tab context menu: close, close others, close all
+- [ ] New tab button + recent repos list
 
 ### Phase 5: Polish & ecosystem
 
-- [x] Dark/light theme
-- [ ] Keyboard shortcuts (vim-style optional)
-- [ ] Settings UI (wrapping `.macheterc` config)
-- [ ] Auto-update mechanism
+- [x] Dark/light theme (toggle in toolbar, persisted)
+- [x] Keyboard shortcuts (comprehensive: push/pull/fetch/refresh/panels/branch ops)
+- [x] Settings UI (appearance, protected branches, config viewer with sources)
+- [x] App version footer in sidebar
+- [ ] Settings: editable config values (not just read-only)
+- [ ] Settings: keyboard shortcuts reference/customization section
+- [ ] Auto-update mechanism (Tauri updater plugin)
 - [ ] Plugin system for custom workflows
+- [ ] Notification toasts for async operations (push/pull/fetch success/failure)
 
 ## Competitive Positioning
 

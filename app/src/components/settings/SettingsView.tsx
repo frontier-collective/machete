@@ -114,6 +114,55 @@ export function SettingsView() {
         </Card>
       )}
 
+      {/* Keyboard shortcuts */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Keyboard Shortcuts</CardTitle>
+          <CardDescription>
+            Available shortcuts throughout the application.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y">
+            {[
+              { category: "Panels", shortcuts: [
+                { keys: "⌘⇧P", action: "Pull Requests" },
+                { keys: "⌘⇧B", action: "Branch Management" },
+                { keys: "⌘⇧E", action: "Release" },
+                { keys: "⌘,", action: "Settings" },
+              ]},
+              { category: "Git Operations", shortcuts: [
+                { keys: "⌘⇧U", action: "Push" },
+                { keys: "⌘⇧L", action: "Pull" },
+                { keys: "⌘⇧F", action: "Fetch" },
+                { keys: "⌘⇧R", action: "Refresh all (fetch + update panels)" },
+              ]},
+              { category: "Branches", shortcuts: [
+                { keys: "⌘⇧N", action: "New branch" },
+                { keys: "⌘⇧S", action: "Analyze branch safety" },
+                { keys: "⌘⇧T", action: "Stash changes" },
+              ]},
+              { category: "PR Editor", shortcuts: [
+                { keys: "⌘⇧M", action: "Toggle markdown cheatsheet" },
+                { keys: "⌘↵", action: "Submit commit / create PR" },
+              ]},
+            ].map(({ category, shortcuts }) => (
+              <div key={category} className="px-6 py-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">{category}</div>
+                <div className="space-y-1.5">
+                  {shortcuts.map(({ keys, action }) => (
+                    <div key={keys} className="flex items-center justify-between">
+                      <span className="text-sm">{action}</span>
+                      <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs">{keys}</kbd>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Config table */}
       <Card>
         <CardHeader className="pb-3">

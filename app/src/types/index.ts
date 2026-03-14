@@ -145,6 +145,14 @@ export interface CommitDetail {
   files: FileStatus[];
 }
 
+// Stash
+export interface StashEntry {
+  index: number;
+  ref: string;
+  message: string;
+  date: string;
+}
+
 // Commit log
 export interface CommitLogEntry {
   hash: string;
