@@ -88,12 +88,16 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
   }, [repoPath, hash]);
 
   // Fetch diff for selected file (show the commit's diff for that file)
+  // Only show loading spinner when selecting a new file, not on context line changes
+  const prevFileRef = useRef<string | null>(null);
   useEffect(() => {
     if (!selectedFile || !hash) {
       setDiff("");
       return;
     }
-    setDiffLoading(true);
+    const isNewFile = selectedFile !== prevFileRef.current;
+    prevFileRef.current = selectedFile;
+    if (isNewFile) setDiffLoading(true);
     invoke<string>("get_file_diff", { repoPath, file: selectedFile, staged: false, commitHash: hash, contextLines })
       .then(setDiff)
       .catch((e) => setDiff(`Error loading diff: ${e}`))
@@ -426,28 +430,24 @@ function StagingView({ repoPath }: { repoPath: string }) {
     fetchContext(!context); // show loading spinner only on initial load
   }, [fetchContext, stagingTrigger]);
 
-  // Monotonic counter bumped on every filesystem change — forces diff refetch
-  // even when the file list (stagingTrigger) hasn't changed (e.g. editing an
-  // untracked file that's already in the list).
+  // Monotonic counter bumped on filesystem changes — forces diff-content
+  // refetch even when the file list (stagingTrigger) hasn't changed (e.g.
+  // editing an untracked file that's already in the list).
+  // Context refetch is NOT needed here — stagingTrigger already handles
+  // file list changes via the status refresh pipeline.
   const [fsTick, setFsTick] = useState(0);
 
-  // Listen directly for filesystem changes to refresh context + diff.
-  // App.tsx already calls refreshStatus() on repo-fs-changed, so we only
-  // need to refetch context and bump fsTick to force diff refresh.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const unlisten = listen("repo-fs-changed", () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        fetchContext();
-        setFsTick((t) => t + 1);
-      }, 300);
+      timer = setTimeout(() => setFsTick((t) => t + 1), 500);
     });
     return () => {
       if (timer) clearTimeout(timer);
       unlisten.then((fn) => fn());
     };
-  }, [fetchContext]);
+  }, []);
 
   // Listen for toolbar commit button event
   useEffect(() => {
@@ -464,10 +464,15 @@ function StagingView({ repoPath }: { repoPath: string }) {
 
   const contextLines = layout.contextLines;
 
+  // Generation counter to discard stale diff results
+  const diffGeneration = useRef(0);
+
   const fetchDiff = useCallback(
-    async (file: string, staged: boolean) => {
+    async (file: string, staged: boolean, isRefresh: boolean) => {
       if (!repoPath) return;
-      setDiffLoading(true);
+      const gen = ++diffGeneration.current;
+      // Only show loading spinner on initial fetch, not on background refreshes
+      if (!isRefresh) setDiffLoading(true);
       try {
         const result = await invoke<string>("get_file_diff", {
           repoPath,
@@ -475,25 +480,33 @@ function StagingView({ repoPath }: { repoPath: string }) {
           staged,
           contextLines,
         });
+        if (gen !== diffGeneration.current) return; // stale — discard
         setDiff(result);
       } catch (e) {
+        if (gen !== diffGeneration.current) return;
         setDiff(`Error loading diff: ${e}`);
       } finally {
-        setDiffLoading(false);
+        if (gen === diffGeneration.current) setDiffLoading(false);
       }
     },
     [repoPath, contextLines]
   );
 
-  // Re-fetch diff when file selection changes, staged/unstaged files change,
-  // or filesystem changes are detected (fsTick).
+  // Re-fetch diff when file selection or staged/unstaged lists change
   useEffect(() => {
     if (selectedFile) {
-      fetchDiff(selectedFile, selectedFileStaged);
+      fetchDiff(selectedFile, selectedFileStaged, false);
     } else {
       setDiff("");
     }
-  }, [selectedFile, selectedFileStaged, fetchDiff, stagingTrigger, fsTick]);
+  }, [selectedFile, selectedFileStaged, fetchDiff, stagingTrigger]);
+
+  // Silently refresh diff content on filesystem changes (no loading flash)
+  useEffect(() => {
+    if (fsTick > 0 && selectedFile) {
+      fetchDiff(selectedFile, selectedFileStaged, true);
+    }
+  }, [fsTick]); // intentionally minimal deps — fsTick is the only trigger
 
   async function handleStageFiles(files: string[]) {
     if (!repoPath) return;

@@ -35,7 +35,7 @@ import {
   Kbd,
 } from "@/components/ui/tooltip";
 import type { BranchInfo } from "@/types";
-import logoSvg from "@/assets/machete-logo.svg";
+
 
 export type ToolbarAction = "pr" | "prune" | "release" | "settings" | null;
 
@@ -195,11 +195,8 @@ export function Toolbar({ activeAction, onAction }: ToolbarProps) {
           onMouseDown={handleDragMouseDown}
         />
 
-        {/* Left: logo + branding */}
-        <div className="relative flex items-center gap-1.5 text-sm pl-[84px] shrink-0 pointer-events-none">
-          <img src={logoSvg} alt="Machete" className="h-5 w-5 rounded-sm" />
-          <span className="text-sm font-bold tracking-tight">Machete</span>
-        </div>
+        {/* Left spacer (traffic lights are in the tab bar above) */}
+        <div className="relative w-3 shrink-0" />
 
         {/* Center: branch status + push/pull/fetch (absolutely centered) */}
         {status && (

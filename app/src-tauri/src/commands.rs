@@ -729,6 +729,45 @@ pub async fn delete_branches(repo_path: String, branches: Vec<String>) -> Result
     }).await
 }
 
+/// Delete a single branch with options for force delete and remote deletion.
+#[tauri::command]
+pub async fn delete_branch(
+    repo_path: String,
+    branch: String,
+    force: bool,
+    delete_remote: bool,
+) -> Result<String, String> {
+    off_main(move || {
+        // Delete the local branch
+        let flag = if force { "-D" } else { "-d" };
+        run_git(&repo_path, &["branch", flag, &branch])
+            .map_err(|e| format!("Failed to delete local branch '{}': {}", branch, e))?;
+
+        // Optionally delete the remote tracking branch
+        if delete_remote {
+            // Determine the remote name (usually "origin")
+            let remote = match run_git(&repo_path, &["config", &format!("branch.{}.remote", branch)]) {
+                Ok(output) => {
+                    let r = output.trim().to_string();
+                    if r.is_empty() { "origin".to_string() } else { r }
+                }
+                Err(_) => "origin".to_string(),
+            };
+
+            if let Err(e) = run_git(&repo_path, &["push", &remote, "--delete", &branch]) {
+                // Local delete succeeded but remote failed — report but don't roll back
+                return Err(format!(
+                    "Local branch '{}' deleted, but failed to delete remote: {}",
+                    branch, e
+                ));
+            }
+        }
+
+        Ok(format!("Deleted branch '{}'", branch))
+    })
+    .await
+}
+
 // ─── PR ─────────────────────────────────────────────────────────────
 
 /// Detect the default base branch: prBaseBranch config → remote default → "main"

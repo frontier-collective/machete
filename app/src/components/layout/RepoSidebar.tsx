@@ -7,7 +7,6 @@ import {
   Tag,
   ChevronRight,
   ChevronDown,
-  FolderOpen,
   Folder,
   Loader2,
   Shield,
@@ -20,7 +19,7 @@ import {
   Play,
   Trash2,
 } from "lucide-react";
-import { open } from "@tauri-apps/plugin-dialog";
+
 import { useRepoPath, useStatus, useSelection, useLayout, useClassification } from "@/hooks/useRepo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -50,6 +49,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { CreateBranchDialog } from "@/components/branches/CreateBranchDialog";
+import { DeleteBranchDialog } from "@/components/branches/DeleteBranchDialog";
 import { MergeRebaseDialog, type MergeMode } from "@/components/branches/MergeRebaseDialog";
 import type { BranchInfo, RemoteInfo, ConfigEntry, StashEntry } from "@/types";
 
@@ -60,7 +60,7 @@ export function RepoSidebar({
   width?: number;
   onError?: (msg: string | null) => void;
 }) {
-  const { repoPath, setRepoPath } = useRepoPath();
+  const { repoPath } = useRepoPath();
   const { status, refreshStatus } = useStatus();
   const { selectedBranch, setSelectedBranch } = useSelection();
   const { layout, updateLayout } = useLayout();
@@ -95,6 +95,10 @@ export function RepoSidebar({
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [mergeDialogMode, setMergeDialogMode] = useState<MergeMode>("merge");
   const [mergeDialogBranch, setMergeDialogBranch] = useState<string | null>(null);
+
+  // Delete branch dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteDialogBranch, setDeleteDialogBranch] = useState<string | null>(null);
 
   // Stash dialog state
   const [stashApplyConfirm, setStashApplyConfirm] = useState<StashEntry | null>(null);
@@ -147,13 +151,6 @@ export function RepoSidebar({
     return () => { unlisten.then((fn) => fn()); };
   }, [fetchSidebarData]);
 
-  const handleOpenRepo = async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === "string") {
-      setRepoPath(selected);
-    }
-  };
-
   const handleCheckout = async (branch: string) => {
     if (!repoPath || checkoutLoading) return;
     setCheckoutLoading(branch);
@@ -183,6 +180,11 @@ export function RepoSidebar({
     setMergeDialogBranch(branch);
     setMergeDialogMode("rebase");
     setMergeDialogOpen(true);
+  };
+
+  const handleDeleteBranch = (branch: string) => {
+    setDeleteDialogBranch(branch);
+    setDeleteDialogOpen(true);
   };
 
   const getBranchSafetyDot = (branchName: string): string | null => {
@@ -287,10 +289,6 @@ export function RepoSidebar({
     [remotes]
   );
 
-  const repoName = repoPath
-    ? repoPath.replace(/\/+$/, "").split("/").pop() || "Repo"
-    : null;
-
   // Sidebar keyboard shortcuts
   const sidebarShortcuts = useMemo<ShortcutDef[]>(
     () => [
@@ -306,24 +304,7 @@ export function RepoSidebar({
   return (
     <TooltipProvider delayDuration={400}>
     <aside className="flex h-full flex-col bg-muted/30 shrink-0" style={{ width: width ?? 220 }}>
-      {/* Repo selector */}
-      <div className="flex items-center gap-2 border-b px-3 py-2 shrink-0">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="flex-1 justify-start gap-2 text-left font-semibold text-sm h-8 px-2"
-          onClick={handleOpenRepo}
-        >
-          <FolderOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">{repoName || "Open Repo..."}</span>
-        </Button>
-      </div>
-
-      {!repoPath ? (
-        <div className="flex flex-1 items-center justify-center p-4 text-xs text-muted-foreground">
-          No repository open
-        </div>
-      ) : loading && branches.length === 0 ? (
+      {loading && branches.length === 0 ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         </div>
@@ -394,6 +375,7 @@ export function RepoSidebar({
                   onCreateBranch={handleCreateBranch}
                   onMerge={handleMerge}
                   onRebase={handleRebase}
+                  onDelete={handleDeleteBranch}
                   expandedFolders={expandedFolders}
                   toggleFolder={toggleFolder}
                 />
@@ -593,6 +575,15 @@ export function RepoSidebar({
         onCreated={fetchSidebarData}
       />
 
+      {/* Delete Branch Dialog */}
+      <DeleteBranchDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        branch={deleteDialogBranch}
+        branchInfo={deleteDialogBranch ? branches.find((b) => b.name === deleteDialogBranch) ?? null : null}
+        onDeleted={fetchSidebarData}
+      />
+
       {/* Merge / Rebase Dialog */}
       <MergeRebaseDialog
         open={mergeDialogOpen}
@@ -708,6 +699,7 @@ function BranchTreeView({
   onCreateBranch,
   onMerge,
   onRebase,
+  onDelete,
   expandedFolders,
   toggleFolder,
 }: {
@@ -724,6 +716,7 @@ function BranchTreeView({
   onCreateBranch: (sourceBranch: string) => void;
   onMerge: (branch: string) => void;
   onRebase: (branch: string) => void;
+  onDelete: (branch: string) => void;
   expandedFolders: Set<string>;
   toggleFolder: (path: string) => void;
 }) {
@@ -850,6 +843,14 @@ function BranchTreeView({
                 >
                   Rebase current branch onto {node.name}...
                 </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  disabled={b.current}
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => onDelete(b.name)}
+                >
+                  Delete {node.name}...
+                </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
           );
@@ -889,6 +890,7 @@ function BranchTreeView({
                 onCreateBranch={onCreateBranch}
                 onMerge={onMerge}
                 onRebase={onRebase}
+                onDelete={onDelete}
                 expandedFolders={expandedFolders}
                 toggleFolder={toggleFolder}
               />

@@ -25,6 +25,7 @@ pub fn run() {
             commands::create_branch,
             commands::get_branch_classification,
             commands::delete_branches,
+            commands::delete_branch,
             commands::get_default_base_branch,
             commands::get_pr_context,
             commands::generate_pr,

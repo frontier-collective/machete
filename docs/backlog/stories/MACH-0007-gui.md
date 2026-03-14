@@ -419,12 +419,369 @@ Focus: essential git operations missing from the GUI.
 
 ### Phase 4: Multi-repo & workspaces
 
-- [ ] Tabbed interface for multiple repos (repo selector becomes tab bar)
-- [ ] Workspace save/restore (remember which repos were open)
-- [ ] Cross-repo branch overview (e.g. "which repos have uncommitted work?")
+Focus: Transform from a single-repo app into a multi-repo workspace tool with tabs, named workspaces, and a cross-repo dashboard.
+
+#### Checklist
+
+- [ ] Tab bar component (replaces repo selector in toolbar)
+- [ ] Per-tab isolated state (each tab has its own context providers)
+- [ ] Tab lifecycle: open, close, reorder, persist
+- [ ] Recent repos list (new tab landing page)
+- [ ] Quick switcher dialog (`⌘O`)
+- [ ] `machete open .` CLI command (deep link)
+- [ ] Named workspaces (save/restore named sets of repos)
+- [ ] Cross-repo dashboard tab
+- [ ] Tab context menu (close, close others, close all, copy path)
 - [ ] Drag-and-drop tab reordering
-- [ ] Tab context menu: close, close others, close all
-- [ ] New tab button + recent repos list
+
+---
+
+#### Spec: Tab system
+
+##### Architecture — tabs, not windows
+
+The app stays single-window. A horizontal tab bar replaces the current repo selector at the top of the toolbar area. Each tab represents one open repository. Clicking a tab switches the entire main area (sidebar, commit log, staging, commit bar, slide-overs) to that repo's state.
+
+##### Tab bar layout
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ [machete ▾] │ repo-alpha ✕ │ repo-beta ✕ │ api-service ✕ │ [+]  │ ⚙ │
+├──────────────┴──────────────┴──────────────┴───────────────┴──────┴───┤
+│  TOOLBAR   [ ◀ main ] [ Push ] [ Pull ] [ Fetch ] [ PR ] [ ⌥ ] ...  │
+├──────────┬───────────────────────────────────────────────────────────-┤
+│ SIDEBAR  │  MAIN AREA (commit log / staging / diff / commit bar)     │
+│          │                                                            │
+```
+
+- Tab bar sits above the existing toolbar, below the macOS traffic lights
+- Each tab shows the repo's directory name (e.g. `machete`, not the full path)
+- Full path shown in tooltip on hover
+- Active tab is visually highlighted (brand color underline or background)
+- Close button (`✕`) on each tab, visible on hover or when active
+- `[+]` button at the end opens a new tab (shows the recent repos / welcome screen)
+- `[machete ▾]` at the far left is the workspace menu (see Workspaces spec below)
+- Unlimited tabs — no artificial limit. Tab bar scrolls horizontally if needed, with overflow arrows
+
+##### Tab state isolation
+
+Each tab gets its own complete set of React context providers:
+
+```
+<TabContainer>
+  <Tab id="1" active>
+    <RepoPathProvider repoPath="/Users/user/repos/alpha">
+      <StatusProvider>
+        <SelectionProvider>
+          <LayoutProvider>
+            <ClassificationProvider>
+              <RepoMetadataProvider>
+                {/* Sidebar + Toolbar + MainArea + SlideOvers */}
+              </RepoMetadataProvider>
+            </ClassificationProvider>
+          </LayoutProvider>
+        </SelectionProvider>
+      </StatusProvider>
+    </RepoPathProvider>
+  </Tab>
+  <Tab id="2" inactive>
+    {/* Same provider tree, different repoPath — unmounted or kept alive */}
+  </Tab>
+</TabContainer>
+```
+
+**Key decision — keep-alive vs remount:**
+
+- **Active tab**: fully rendered, file watcher running, status polling active
+- **Inactive tabs**: context providers stay mounted (preserving state like scroll position, selected file, staged files), but file watcher is paused and status polling is suspended
+- When switching tabs: resume watcher + trigger a single status refresh
+- This avoids the "lost my place" problem of remounting, while keeping resource usage low for background tabs
+
+**Rust backend — no changes needed.** All Tauri commands already take `repo_path: String`. The frontend simply calls them with the active tab's repo path. Multiple file watchers can coexist (one per open tab, paused when inactive).
+
+##### Tab lifecycle
+
+| Action | Behavior |
+|--------|----------|
+| **Open repo** | New tab created, becomes active. Repo path set, watcher starts. |
+| **Close tab** | Tab removed from tab bar. Watcher stopped. State discarded. If it's the last tab, show the welcome/recent screen (no empty state). |
+| **Close others** | Close all tabs except the one that was right-clicked. |
+| **Close all** | Close all tabs. Show welcome/recent screen. |
+| **Reorder** | Drag-and-drop tabs to rearrange. Order persisted to session. |
+| **Startup** | Restore last session's tabs (paths + order + active tab). If a repo path no longer exists, show error state in that tab with option to locate or close. |
+| **Duplicate path** | If user opens a repo that's already in a tab, switch to that tab instead of opening a duplicate. Show a brief toast: "Already open". |
+
+##### Tab context menu (right-click)
+
+```
+┌─────────────────────────┐
+│ Close                   │
+│ Close Others            │
+│ Close All               │
+│ ─────────────────────── │
+│ Copy Path               │
+│ Reveal in Finder        │
+│ ─────────────────────── │
+│ Move Left               │
+│ Move Right              │
+└─────────────────────────┘
+```
+
+##### Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘O` | Open quick switcher (see below) |
+| `⌘W` | Close active tab |
+| `⌘⇧[` | Switch to previous tab |
+| `⌘⇧]` | Switch to next tab |
+| `⌘1`–`⌘9` | Switch to tab by index (⌘9 = last tab) |
+| `⌘T` | New tab (shows recent repos / welcome) |
+
+---
+
+#### Spec: Opening repos
+
+Three ways to open a repository:
+
+##### 1. Recent repos list (new tab landing page)
+
+When a new tab is created (or on first launch with no session), show a welcome/landing screen:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│           ┌────────────────────────┐                     │
+│           │    🔀  Machete         │                     │
+│           └────────────────────────┘                     │
+│                                                          │
+│           Open a repository to get started               │
+│                                                          │
+│           [ Browse... ]     [ Quick Open ⌘O ]            │
+│                                                          │
+│           ── Recent ──────────────────────────           │
+│           📁 machete          ~/Development/machete      │
+│           📁 api-service      ~/Work/api-service         │
+│           📁 frontend-app     ~/Work/frontend-app        │
+│           📁 dotfiles         ~/dotfiles                 │
+│           📁 whetstone        ~/Development/whetstone    │
+│                                                          │
+│           ── Workspaces ─────────────────────            │
+│           📦 Personal OSS     (3 repos)  [ Open ]        │
+│           📦 Work             (5 repos)  [ Open ]        │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **Recent repos**: last 20 opened repos, most recent first. Stored in app-level localStorage (not per-repo).
+- Click a recent repo → opens it in the current (new) tab
+- "Browse..." → native directory picker (existing behavior, opens in current tab)
+- Repos that no longer exist at their path are shown greyed out with "(not found)" — click to remove from list
+
+##### 2. Quick switcher (`⌘O`)
+
+A command-palette-style dialog for fast repo switching:
+
+```
+┌─ Open Repository ────────────────────────────────────────┐
+│                                                          │
+│  🔍 [ search...                                    ]    │
+│                                                          │
+│  Recently opened                                         │
+│  ▸ machete              ~/Development/machete            │
+│  ▸ api-service          ~/Work/api-service       ●       │
+│  ▸ frontend-app         ~/Work/frontend-app              │
+│  ▸ whetstone            ~/Development/whetstone          │
+│                                                          │
+│  Already open (● = active tab)                           │
+│  ▸ machete              ~/Development/machete    ●       │
+│                                                          │
+│  [ Browse... ]                                           │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+- Fuzzy search filters by repo name and path
+- Arrow keys to navigate, Enter to select
+- Already-open repos are marked (●) — selecting one switches to that tab
+- Non-open repos open in a new tab
+- "Browse..." at the bottom opens the native directory picker
+- Escape or click outside to dismiss
+
+##### 3. `machete open .` CLI command
+
+A new CLI command that opens a repo in the running Machete app:
+
+```bash
+machete open .                    # open current directory
+machete open ~/Work/api-service   # open specific path
+machete open                      # open Machete app (no repo, shows welcome)
+```
+
+**Implementation — deep linking via Tauri:**
+
+- Register a custom URL scheme: `machete://open?path=/Users/user/repos/alpha`
+- `machete open <path>` resolves the path to absolute, then opens the URL scheme
+- If the app is running: Tauri handles the URL, opens the repo in a new tab (or switches to existing tab)
+- If the app is not running: URL scheme launches the app, which reads the URL on startup and opens the repo
+- Alternative approach (if URL scheme is problematic): use a local Unix socket or TCP port for IPC between CLI and running app
+
+**New CLI code** (`src/commands/open.ts`):
+- Resolve path argument (default `.`) to absolute path
+- Verify it's a git repository (`git rev-parse --git-dir`)
+- Open via URL scheme or IPC
+
+---
+
+#### Spec: Named workspaces
+
+Workspaces are named collections of repos that can be saved and restored. They provide quick context-switching for users who work across different sets of repos (e.g. "Work" vs "Personal OSS" vs "Client project").
+
+##### Workspace data model
+
+```typescript
+interface Workspace {
+  id: string;           // UUID
+  name: string;         // User-defined name (e.g. "Work", "Personal OSS")
+  repoPaths: string[];  // Ordered list of repo paths
+  activeIndex: number;  // Which tab was active when saved
+  createdAt: string;    // ISO timestamp
+  updatedAt: string;    // ISO timestamp
+}
+```
+
+Stored in app-level localStorage under key `machete:workspaces`.
+
+##### Workspace menu (tab bar, far left)
+
+The `[machete ▾]` dropdown at the far left of the tab bar:
+
+```
+┌─────────────────────────────────────┐
+│ Current: Work                       │
+│ ─────────────────────────────────── │
+│ Save Workspace                      │
+│ Save Workspace As...                │
+│ ─────────────────────────────────── │
+│ ▸ Personal OSS       (3 repos)      │
+│ ▸ Work               (5 repos)      │
+│ ▸ Client Alpha       (2 repos)      │
+│ ─────────────────────────────────── │
+│ Manage Workspaces...                │
+└─────────────────────────────────────┘
+```
+
+| Action | Behavior |
+|--------|----------|
+| **Save Workspace** | Saves the current set of open tabs (paths + order + active tab) to the current workspace. If no workspace is active, prompts for a name (same as "Save As"). |
+| **Save Workspace As...** | Prompts for a workspace name, creates a new workspace with current tabs. |
+| **Click a workspace** | Closes all current tabs and opens the workspace's repos. Restores tab order and active tab. If any repo path is missing, shows that tab with an error state. |
+| **Manage Workspaces...** | Opens a dialog to rename, delete, or reorder workspaces. |
+
+##### Workspace vs session
+
+- **Session**: automatically saved on quit, restored on launch. Always happens. This is the "last session" state — unnamed and implicit.
+- **Workspace**: explicitly named and saved by the user. Survives across sessions. Opening a workspace replaces the current session's tabs.
+
+When the app starts:
+1. Restore the last session (tabs that were open when the app was last closed)
+2. If the last session was a named workspace, show that workspace name in the tab bar menu
+
+##### Workspace keyboard shortcut
+
+No dedicated shortcut for workspaces in Phase 4 — the workspace menu is accessible via the tab bar dropdown. Quick switcher (`⌘O`) is the fast path for opening individual repos.
+
+---
+
+#### Spec: Cross-repo dashboard
+
+A special tab type that shows an overview of all currently open repos at a glance. Think of it as a "control center" for your workspace.
+
+##### Opening the dashboard
+
+- Click the Machete logo/icon in the tab bar (or a dedicated "Dashboard" item)
+- Keyboard shortcut: `⌘⇧D`
+- Always available as a pinned tab or openable tab — not a separate window
+
+##### Dashboard layout
+
+```
+┌─ Dashboard ──────────────────────────────────────────────────────────┐
+│                                                                      │
+│  Workspace: Work (5 repos)                            [ Refresh ]    │
+│                                                                      │
+│  ┌─ machete ──────────────────────────────────────────────────────┐  │
+│  │ 🌿 feature/gui  →  develop    ✅ Clean    ↑2 ahead            │  │
+│  │ Last commit: 2h ago — "feat: add tab bar component"            │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  ┌─ api-service ──────────────────────────────────────────────────┐  │
+│  │ 🌿 main           ⚠️ 3 modified    ↓5 behind                  │  │
+│  │ Last commit: 1d ago — "fix: rate limiter edge case"            │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  ┌─ frontend-app ─────────────────────────────────────────────────┐  │
+│  │ 🌿 develop         ✅ Clean    ● Up to date                    │  │
+│  │ Last commit: 3h ago — "chore: update dependencies"             │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  ┌─ shared-lib ───────────────────────────────────────────────────┐  │
+│  │ 🌿 feature/auth  →  main    ⚠️ 1 staged, 2 modified   ↑1 ↓3  │  │
+│  │ Last commit: 30m ago — "wip: oauth2 flow"                     │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+│  ┌─ infra ────────────────────────────────────────────────────────┐  │
+│  │ 🌿 main           ✅ Clean    ● Up to date                    │  │
+│  │ Last commit: 2d ago — "ci: update deploy pipeline"            │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+##### Per-repo card contents
+
+Each repo is shown as a card with:
+
+| Field | Source | Description |
+|-------|--------|-------------|
+| **Repo name** | Directory name | Bold, clickable (switches to that tab) |
+| **Current branch** | `git branch --show-current` | Branch name with branch icon |
+| **Upstream** | `git rev-parse --abbrev-ref @{u}` | Shows `→ main` if tracking branch differs from current |
+| **Working tree status** | `git status --porcelain` | Clean (green check), or count of staged/modified/untracked (amber warning) |
+| **Ahead/behind** | `git rev-list --left-right --count HEAD...@{u}` | `↑N ahead`, `↓N behind`, or `● Up to date` |
+| **Last commit** | `git log -1 --format=...` | Relative time + first line of commit message |
+
+##### Interaction
+
+- **Click repo name or card**: switch to that repo's tab
+- **Refresh button**: re-fetch status for all repos
+- **Auto-refresh**: dashboard polls status for all repos every 10 seconds when visible (not when another tab is active)
+- Cards with dirty working trees or behind-remote status are visually highlighted (amber border or background)
+
+##### Rust backend — new Tauri command
+
+```rust
+#[tauri::command]
+async fn get_repo_summary(repo_path: String) -> Result<RepoSummary, String> {
+    // Returns: branch, upstream, ahead/behind, clean/dirty counts,
+    //          last commit (hash, message, author, relative time)
+}
+```
+
+The frontend calls `get_repo_summary` for each open repo in parallel.
+
+---
+
+#### Implementation order
+
+1. **Tab bar + tab state isolation** — the foundation. Get multiple repos open with proper state isolation.
+2. **Tab lifecycle** — close, reorder, session persistence. Keyboard shortcuts.
+3. **Recent repos + quick switcher** — the new tab landing page and `⌘O` dialog.
+4. **`machete open .` CLI command** — deep linking from terminal to app.
+5. **Named workspaces** — save/restore workspace sets.
+6. **Cross-repo dashboard** — the overview tab.
+
+Each step is independently shippable and useful.
 
 ### Phase 5: Polish & ecosystem
 
