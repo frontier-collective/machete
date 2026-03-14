@@ -44,13 +44,11 @@ jobs:
               app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
               app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
 
-          # Linux ARM
+          # Linux ARM (deb only — AppImage lacks xdg-open on ARM runners)
           - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            bundles: deb,appimage
-            artifact: |
-              app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb
-              app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+            bundles: deb
+            artifact: "app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb"
 
           # Windows x64
           - os: windows-latest
