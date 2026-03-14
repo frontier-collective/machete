@@ -4,3 +4,9 @@ dist/
 .DS_Store
 .env
 .macheterc
+
+# Tauri app
+app/src-tauri/target/
+app/src-tauri/gen/
+app/dist/
+app/node_modules/

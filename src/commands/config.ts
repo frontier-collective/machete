@@ -1,5 +1,5 @@
 import type { ParsedArgs } from "../cli/args.js";
-import type { ConfigKey } from "../lib/types.js";
+import type { ConfigKey, ConfigEntryJson } from "../lib/types.js";
 import { ALL_KEYS, ARRAY_KEYS, CREDENTIAL_KEYS } from "../lib/types.js";
 import {
   loadConfigWithSources,
@@ -69,6 +69,19 @@ export async function runConfig(args: ParsedArgs): Promise<void> {
   // machete config --list
   if (args.list === true) {
     const sources = loadConfigWithSources();
+
+    if (args.json === true) {
+      const entries: ConfigEntryJson[] = sources.map((s) => ({
+        key: s.key,
+        value: CREDENTIAL_KEYS.has(s.key) && typeof s.value === "string"
+          ? maskCredential(s.value)
+          : s.value,
+        source: s.source,
+      }));
+      console.log(JSON.stringify(entries));
+      return;
+    }
+
     if (sources.length === 0) {
       info("No configuration found.");
       return;

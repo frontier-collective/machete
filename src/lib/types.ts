@@ -64,3 +64,68 @@ export interface BranchInfo {
   isProtected: boolean;
   hasRemote: boolean;
 }
+
+// ─── JSON output types (for GUI consumption) ────────────────────────
+
+export interface RepoStatusJson {
+  branch: string;
+  isClean: boolean;
+  stagedFiles: string[];
+  unstagedFiles: string[];
+  stagedCount: number;
+  unstagedCount: number;
+  remote: string;
+  aheadCount: number;
+  behindCount: number;
+}
+
+export interface FileStatusJson {
+  file: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+}
+
+export interface CommitContextJson {
+  branch: string;
+  staged: FileStatusJson[];
+  unstaged: FileStatusJson[];
+  recentCommits: string[];
+}
+
+export interface PruneClassificationJson {
+  currentBranch: string;
+  kept: { name: string; reason: string }[];
+  protected: string[];
+  safe: BranchSafetyResult[];
+  unsafe: BranchSafetyResult[];
+}
+
+export interface PrContextJson {
+  branch: string;
+  baseBranch: string;
+  commitCount: number;
+  commits: string[];
+  commitLog: string;
+  filesChanged: FileStatusJson[];
+  totalAdded: number;
+  totalRemoved: number;
+  onRemote: boolean;
+  upToDate: boolean;
+  aheadCount: number;
+}
+
+export interface ReleasePreviewJson {
+  currentVersion: string;
+  versions: {
+    patch: string;
+    minor: string;
+    major: string;
+  };
+}
+
+export interface ConfigEntryJson {
+  key: string;
+  value: unknown;
+  source: string;
+}

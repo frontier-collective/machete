@@ -19,11 +19,13 @@ ${BOLD}USAGE${RESET}
 
 ${BOLD}COMMANDS${RESET}
   ${GREEN}init${RESET}      Initialize .macheterc in the current repository
+  ${GREEN}status${RESET}    Show repository status — branch, staged/unstaged files, ahead/behind ${DIM}(--json)${RESET}
   ${GREEN}commit${RESET}    Generate an AI commit message and commit staged changes ${DIM}(--dry-run)${RESET}
   ${GREEN}config${RESET}    Read or write configuration values ${DIM}(-g, --list, --add, --remove)${RESET}
   ${GREEN}prune${RESET}     Safely delete fully-merged local branches ${DIM}(--dry-run, -i, -n)${RESET}
   ${GREEN}pr${RESET}        Create a GitHub PR with AI-generated title and description ${DIM}(--draft, --dry-run, --noai)${RESET}
   ${GREEN}release${RESET}   Git-flow release with changelog, GH release, and npm publish ${DIM}(--dry-run, --noai, --no-publish)${RESET}
+  ${GREEN}gui${RESET}       Launch the Machete desktop app
 
 ${BOLD}OPTIONS${RESET}
   ${GREEN}-h, --help${RESET}       Show this help message

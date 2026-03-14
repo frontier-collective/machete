@@ -63,6 +63,16 @@ switch (command) {
     await runPr(args);
     break;
   }
+  case "status": {
+    const { runStatus } = await import("./commands/status.js");
+    await runStatus(args);
+    break;
+  }
+  case "gui": {
+    const { runGui } = await import("./commands/gui.js");
+    await runGui(args);
+    break;
+  }
   default:
     console.error(`Unknown command: ${command}`);
     console.error(`Run "machete help" for usage information.`);

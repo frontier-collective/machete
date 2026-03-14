@@ -1,10 +1,9 @@
 ---
 id: MACH-0002
 title: Unit tests for core modules
-status: done
+status: draft
 priority: high
 created: 2026-03-13
-completed: 2026-03-13
 ---
 
 # MACH-0002: Unit tests for core modules
