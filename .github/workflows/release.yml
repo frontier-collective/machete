@@ -27,19 +27,19 @@ jobs:
           # macOS Apple Silicon
           - os: macos-latest
             target: aarch64-apple-darwin
-            bundles: dmg
+            bundles: dmg,updater
             artifact: "app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # macOS Intel (cross-compiled on ARM runner)
           - os: macos-latest
             target: x86_64-apple-darwin
-            bundles: dmg
+            bundles: dmg,updater
             artifact: "app/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # Linux x64
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            bundles: deb,appimage
+            bundles: deb,appimage,updater
             artifact: |
               app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
               app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
@@ -47,7 +47,7 @@ jobs:
           # Linux ARM (deb only — AppImage lacks xdg-open on ARM runners)
           - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            bundles: deb
+            bundles: deb,updater
             artifact: "app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb"
 
           # Windows x64
@@ -109,15 +109,22 @@ jobs:
           npm ci
           cd app && npm ci
 
-      # Build the Tauri app for the target platform
+      # Build the Tauri app for the target platform (with signing for auto-updates)
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           tauriScript: npm run tauri
           args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          tagName: ${{ env.TAG }}
+          releaseName: "Machete ${{ env.TAG }}"
+          releaseBody: ""
+          releaseDraft: false
+          prerelease: false
 
       # Upload artifacts so they can be collected by the upload job
       - name: Upload build artifacts
@@ -126,25 +133,3 @@ jobs:
           name: machete-${{ matrix.target }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
-
-  # Attach all artifacts to the GitHub release
-  upload:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-
-      - name: List artifacts
-        run: find artifacts -type f | sort
-
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          files: artifacts/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

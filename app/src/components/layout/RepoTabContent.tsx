@@ -274,6 +274,42 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     return () => { unlisten.then((fn) => fn()); };
   }, [repoPath, refreshStatus, fetchPrs, fetchClassification, startLoading, stopLoading]);
 
+  // ── Auto-fetch on window re-focus after 2+ minutes ──────────────
+  const lastFetchTime = useRef(Date.now());
+
+  // Update lastFetchTime whenever a fetch completes (piggyback on existing events)
+  useEffect(() => {
+    const unlisten = listen("remote-fetched", () => { lastFetchTime.current = Date.now(); });
+    return () => { unlisten.then((fn) => fn()); };
+  }, []);
+
+  useEffect(() => {
+    if (!isActive || !repoPath) return;
+
+    const TWO_MINUTES = 2 * 60 * 1000;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - lastFetchTime.current < TWO_MINUTES) return;
+
+      lastFetchTime.current = Date.now();
+      startLoading();
+      try {
+        await invoke("fetch_remote", { repoPath });
+        refreshStatus();
+        fetchPrs();
+        fetchClassification();
+      } catch {
+        // Non-critical — remote may be unreachable
+      } finally {
+        stopLoading();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [isActive, repoPath, refreshStatus, fetchPrs, fetchClassification, startLoading, stopLoading]);
+
   // Watch repo for filesystem changes — only when active
   useEffect(() => {
     if (!isActive) return;

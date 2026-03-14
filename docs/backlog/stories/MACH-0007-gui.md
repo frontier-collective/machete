@@ -791,7 +791,7 @@ Each step is independently shippable and useful.
 - [x] App version footer in sidebar
 - [ ] Settings: editable config values (not just read-only)
 - [ ] Settings: keyboard shortcuts reference/customization section
-- [ ] Auto-update mechanism (Tauri updater plugin)
+- [ ] `MACH-0009` Auto-update mechanism (Tauri updater plugin)
 - [ ] Plugin system for custom workflows
 - [ ] Notification toasts for async operations (push/pull/fetch success/failure)
 

@@ -14,8 +14,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FolderOpen, CheckCircle2, XCircle, AlertCircle, Loader2 } from "lucide-react";
+import { FolderOpen, CheckCircle2, XCircle, AlertCircle, Loader2, Download } from "lucide-react";
 import logoSvg from "@/assets/machete-logo.svg";
+import { useUpdater, type UpdateState } from "@/hooks/useUpdater";
+import { UpdateBanner } from "@/components/layout/UpdateBanner";
 
 interface HealthCheckResult {
   git: { installed: boolean; version: string | null };
@@ -96,6 +98,7 @@ function HealthChecks({ health, loading }: { health: HealthCheckResult | null; l
 function App() {
   const tabManager = useTabManager();
   const { tabs, activeTabId, openTab, closeTab, activateTab, reportTabStatus } = tabManager;
+  const update = useUpdater();
 
   const handleOpenRepo = useCallback(async () => {
     const selected = await open({ directory: true, multiple: true });
@@ -179,6 +182,15 @@ function App() {
     return () => { unlisten.then((fn) => fn()); };
   }, []);
 
+  // Listen for system menu "Check for Updates" event from Rust
+  useEffect(() => {
+    const unlisten = listen("check-for-updates", () => {
+      setAboutOpen(true);
+      update.checkForUpdate();
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [update.checkForUpdate]);
+
   const hasTabs = tabs.length > 0;
 
   // Fetch health on welcome screen
@@ -191,6 +203,7 @@ function App() {
     return (
       <>
         <div className="flex h-screen w-screen flex-col bg-background">
+          <UpdateBanner update={update} />
           {/* Draggable title bar area */}
           <div
             className="h-9 shrink-0 flex items-center pl-[84px]"
@@ -223,6 +236,7 @@ function App() {
           onOpenChange={setAboutOpen}
           health={health}
           healthLoading={healthLoading}
+          update={update}
         />
       </>
     );
@@ -231,6 +245,9 @@ function App() {
   return (
     <>
       <div className="flex h-screen w-screen flex-col overflow-hidden">
+        {/* Update banner — above tab bar */}
+        <UpdateBanner update={update} />
+
         {/* Tab bar */}
         <TabBar tabManager={tabManager} onAbout={() => setAboutOpen(true)} />
 
@@ -253,6 +270,7 @@ function App() {
         onOpenChange={setAboutOpen}
         health={health}
         healthLoading={healthLoading}
+        update={update}
       />
     </>
   );
@@ -263,11 +281,13 @@ function AboutDialog({
   onOpenChange,
   health,
   healthLoading,
+  update,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   health: HealthCheckResult | null;
   healthLoading: boolean;
+  update: UpdateState;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -291,6 +311,53 @@ function AboutDialog({
           {/* Health checks */}
           <div className="w-full flex flex-col gap-2 items-start rounded-lg border border-border bg-muted/30 px-4 py-3 mt-2">
             <HealthChecks health={health} loading={healthLoading} />
+          </div>
+
+          {/* Update check */}
+          <div className="w-full flex flex-col items-center gap-2 mt-1">
+            {update.available && !update.readyToInstall ? (
+              <div className="text-center space-y-2">
+                <p className="text-sm font-medium">
+                  v{update.version} is available
+                </p>
+                <Button size="sm" variant="brand" onClick={update.downloadAndInstall} disabled={update.downloading}>
+                  {update.downloading ? (
+                    <>
+                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      Downloading... {update.progress}%
+                    </>
+                  ) : (
+                    <>
+                      <Download className="mr-2 h-3.5 w-3.5" />
+                      Download &amp; Install
+                    </>
+                  )}
+                </Button>
+              </div>
+            ) : update.readyToInstall ? (
+              <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                ✓ Update installed — restarting...
+              </p>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={update.checkForUpdate}
+                disabled={update.checking}
+              >
+                {update.checking ? (
+                  <>
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    Checking...
+                  </>
+                ) : (
+                  "Check for Updates"
+                )}
+              </Button>
+            )}
+            {update.error && (
+              <p className="text-xs text-destructive">{update.error}</p>
+            )}
           </div>
         </div>
       </DialogContent>

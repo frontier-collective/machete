@@ -38,6 +38,7 @@ Raw ideas for Machete improvements. Graduate to a story file in `stories/` when 
 ## GUI
 
 - [ ] `MACH-0007` Machete GUI — cross-platform graphical layer over machete CLI (Tauri 2.0 + Svelte/React)
+- [ ] `MACH-0009` Auto-updater — detect and install app updates from GitHub Releases (Tauri updater plugin)
 
 ## Infrastructure
 
