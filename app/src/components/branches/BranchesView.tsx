@@ -203,7 +203,6 @@ export function BranchesView() {
         <>
           {/* Summary bar */}
           <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0 flex-wrap">
-            <span className="text-xs text-muted-foreground mr-1">Summary:</span>
             {classification.protected.length > 0 && (
               <Badge variant="protected">{classification.protected.length} protected</Badge>
             )}
@@ -238,8 +237,8 @@ export function BranchesView() {
           )}
 
           {/* Scrollable branch lists */}
-          <ScrollArea className="flex-1 min-h-0">
-            <div className="px-4 py-3 space-y-4">
+          <ScrollArea className="flex-1 min-h-0 select-none">
+            <div className="px-4 py-3 space-y-4 overflow-hidden">
               {/* Kept Branches (collapsible) */}
               {(() => {
                 const remainingKept = classification.kept.filter(({ name }) => !promoted.has(name));
@@ -308,7 +307,7 @@ export function BranchesView() {
               {(() => {
                 const totalSafe = classification.safe.length + promoted.size;
                 return (
-                  <div className="rounded-lg border border-green-500/30 bg-green-500/5">
+                  <div className="rounded-lg border border-green-500/30 bg-green-500/5 overflow-hidden">
                     <div className="flex items-center justify-between px-3 py-2">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
@@ -339,7 +338,7 @@ export function BranchesView() {
                             return (
                               <div
                                 key={result.branch}
-                                className="flex items-center gap-3 rounded-md px-3 py-1.5 text-sm hover:bg-green-500/10 cursor-pointer"
+                                className="flex items-center gap-3 rounded-md px-3 py-1.5 text-sm hover:bg-green-500/10 cursor-pointer min-w-0"
                                 onClick={() => toggleBranch(result.branch)}
                               >
                                 <Checkbox
@@ -361,7 +360,7 @@ export function BranchesView() {
                           {Array.from(promoted).map((name) => (
                             <div
                               key={name}
-                              className="flex items-center gap-3 rounded-md px-3 py-1.5 text-sm hover:bg-green-500/10 cursor-pointer"
+                              className="flex items-center gap-3 rounded-md px-3 py-1.5 text-sm hover:bg-green-500/10 cursor-pointer min-w-0"
                               onClick={() => toggleBranch(name)}
                             >
                               <Checkbox
@@ -394,7 +393,7 @@ export function BranchesView() {
 
               {/* Unsafe (collapsible) */}
               {classification.unsafe.length > 0 && (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5">
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 overflow-hidden">
                   <button
                     className="flex w-full items-center gap-2 px-3 py-2 text-sm font-semibold hover:bg-amber-500/10"
                     onClick={() => setUnsafeOpen(!unsafeOpen)}

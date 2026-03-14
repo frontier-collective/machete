@@ -44,7 +44,15 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
   const refreshGeneration = useRef(0);
 
   // Branch classification (shared between sidebar + BranchesView)
-  const [classification, setClassification] = useState<PruneClassification | null>(null);
+  // Restore from localStorage so the UI starts with the last known state
+  const [classification, setClassification] = useState<PruneClassification | null>(() => {
+    try {
+      const raw = localStorage.getItem(`machete:classification:${repoPath}`);
+      return raw ? (JSON.parse(raw) as PruneClassification) : null;
+    } catch {
+      return null;
+    }
+  });
   const [classificationLoading, setClassificationLoading] = useState(false);
 
   const fetchClassification = useCallback(async () => {
@@ -53,6 +61,9 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
     try {
       const result = await invoke<PruneClassification>("get_branch_classification", { repoPath });
       setClassification(result);
+      try {
+        localStorage.setItem(`machete:classification:${repoPath}`, JSON.stringify(result));
+      } catch { /* Storage full */ }
     } catch {
       // Non-critical
     } finally {
