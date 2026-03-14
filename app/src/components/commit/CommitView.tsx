@@ -104,6 +104,23 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
       .finally(() => setDiffLoading(false));
   }, [repoPath, selectedFile, hash, contextLines]);
 
+  // ── Arrow key navigation for commit detail files ─────────────────
+  const handleDetailFileKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    if (!detail || detail.files.length === 0) return;
+    e.preventDefault();
+
+    const currentIdx = selectedFile ? detail.files.findIndex((f) => f.file === selectedFile) : -1;
+    const nextIdx = e.key === "ArrowUp"
+      ? Math.max(0, currentIdx - 1)
+      : Math.min(detail.files.length - 1, currentIdx + 1);
+
+    if (nextIdx !== currentIdx || currentIdx === -1) {
+      setSelectedFile(detail.files[nextIdx >= 0 ? nextIdx : 0].file);
+    }
+  }, [detail, selectedFile]);
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground text-xs">
@@ -128,8 +145,10 @@ function CommitDetailView({ repoPath, hash }: { repoPath: string; hash: string }
         {/* Left panel: files changed (top) + commit message (bottom) */}
         <div
           ref={leftPanelRef}
-          className="flex flex-col overflow-hidden rounded-lg border bg-card"
+          className="flex flex-col overflow-hidden rounded-lg border bg-card outline-none"
           style={{ width: `${leftPanelPct}%` }}
+          tabIndex={0}
+          onKeyDown={handleDetailFileKeyDown}
         >
           {/* Files changed */}
           <div className="flex flex-col overflow-hidden" style={{ height: `${filesPct}%` }}>
@@ -623,6 +642,38 @@ function StagingView({ repoPath }: { repoPath: string }) {
   const unstaged = context?.unstaged ?? [];
   const canCommit = staged.length > 0 && message.trim().length > 0 && !committing;
 
+  // ── Arrow key navigation for file lists ────────────────────────
+  const handleFileKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+
+    // Build a flat list: staged files first, then unstaged
+    const allFiles: { file: string; isStaged: boolean }[] = [
+      ...staged.map((f) => ({ file: f.file, isStaged: true })),
+      ...unstaged.map((f) => ({ file: f.file, isStaged: false })),
+    ];
+    if (allFiles.length === 0) return;
+
+    // Find current index
+    let currentIdx = -1;
+    if (selectedFile) {
+      currentIdx = allFiles.findIndex(
+        (f) => f.file === selectedFile && f.isStaged === selectedFileStaged
+      );
+    }
+
+    const nextIdx = e.key === "ArrowUp"
+      ? Math.max(0, currentIdx - 1)
+      : Math.min(allFiles.length - 1, currentIdx + 1);
+
+    if (nextIdx !== currentIdx || currentIdx === -1) {
+      const next = allFiles[nextIdx >= 0 ? nextIdx : 0];
+      setSelectedFile(next.file);
+      setSelectedFileStaged(next.isStaged);
+    }
+  }, [staged, unstaged, selectedFile, selectedFileStaged]);
+
   // Keyboard shortcuts for commit actions (must be before any early returns)
   const commitShortcuts = useMemo<ShortcutDef[]>(
     () => [
@@ -663,8 +714,10 @@ function StagingView({ repoPath }: { repoPath: string }) {
         {/* Left panel - File list */}
         <div
           ref={leftPanelRef}
-          className="flex flex-col overflow-hidden rounded-lg border bg-card"
+          className="flex flex-col overflow-hidden rounded-lg border bg-card outline-none"
           style={{ width: `${leftPanelPct}%` }}
+          tabIndex={0}
+          onKeyDown={handleFileKeyDown}
         >
           {/* Staged section */}
           <div className="flex flex-col overflow-hidden" style={{ height: `${stagedPct}%` }}>

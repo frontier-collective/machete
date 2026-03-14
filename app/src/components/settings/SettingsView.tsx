@@ -142,9 +142,20 @@ export function SettingsView() {
                 { keys: "⌘⇧S", action: "Analyze branch safety" },
                 { keys: "⌘⇧T", action: "Stash changes" },
               ]},
+              { category: "Commit", shortcuts: [
+                { keys: "⌘⇧C", action: "Toggle commit bar" },
+                { keys: "⌘⇧A", action: "Generate AI commit message" },
+                { keys: "⌘↵", action: "Submit commit / create PR" },
+                { keys: "⌘⇧↵", action: "Commit & Push" },
+              ]},
+              { category: "Navigation", shortcuts: [
+                { keys: "⌘↑", action: "Jump to top of history" },
+                { keys: "⌘↓", action: "Jump to bottom of history" },
+                { keys: "⇧↑ / ⇧↓", action: "Navigate commit history (global)" },
+                { keys: "↑ / ↓", action: "Navigate files or commits (when panel focused)" },
+              ]},
               { category: "PR Editor", shortcuts: [
                 { keys: "⌘⇧M", action: "Toggle markdown cheatsheet" },
-                { keys: "⌘↵", action: "Submit commit / create PR" },
               ]},
             ].map(({ category, shortcuts }) => (
               <div key={category} className="px-6 py-3">
