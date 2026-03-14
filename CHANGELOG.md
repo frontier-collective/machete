@@ -2,6 +2,13 @@
 
 All notable changes to Machete are documented here.
 
+## [0.5.2] - 2026-03-14
+
+There are no commits or diff stat provided for this release — the fields appear to be empty.
+
+Could you share the commit log and/or diff stat? Once you do, I'll write the release notes right away.
+
+
 ## [0.5.1] - 2026-03-14
 
 ### Features
