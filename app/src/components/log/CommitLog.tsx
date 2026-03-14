@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Loader2, CircleDot } from "lucide-react";
 import { useRepoPath, useStatus, useSelection } from "@/hooks/useRepo";
+import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -286,6 +287,25 @@ export function CommitLog() {
       virtualizer.scrollToIndex(index, { align: "center", behavior: "smooth" });
     }
   }, [highlightHash, setSelectedCommitHash, commits, virtualizer]);
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────
+  const scrollToTop = useCallback(() => {
+    // Select uncommitted row if it exists, otherwise the first commit
+    if (hasUncommitted) {
+      setSelectedCommitHash(null);
+    } else if (commits.length > 0) {
+      setSelectedCommitHash(commits[0].hash);
+    }
+    // Scroll the virtualizer to the very top
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = 0;
+    }
+  }, [hasUncommitted, commits, setSelectedCommitHash]);
+
+  const logShortcuts = useMemo<ShortcutDef[]>(() => [
+    { key: "ArrowUp", meta: true, handler: scrollToTop },
+  ], [scrollToTop]);
+  useKeyboardShortcuts(logShortcuts);
 
   if (!repoPath) return null;
 

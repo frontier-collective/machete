@@ -210,11 +210,12 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
   }, [isActive, refreshStatus]);
 
   // ── Auto-fetch classification on initial load ────────────────────
-  // Active tab: fetch immediately once status is loaded.
-  // Inactive tabs: fetch with a delay so the active tab gets priority.
+  // Always refresh classification when status loads, even if we have cached data.
+  // Active tab: fetch immediately. Inactive tabs: fetch after a delay.
+  // The UI will show the cached localStorage data while the refresh runs.
   const classificationFetched = useRef(false);
   useEffect(() => {
-    if (!repoPath || !status || classificationFetched.current || classification) return;
+    if (!repoPath || !status || classificationFetched.current) return;
     classificationFetched.current = true;
     if (isActive) {
       fetchClassification();
@@ -222,7 +223,7 @@ export function RepoTabContent({ tabId, repoPath, isActive, onStatusReport }: Re
       const timer = setTimeout(fetchClassification, 3000);
       return () => clearTimeout(timer);
     }
-  }, [repoPath, status, isActive, classification, fetchClassification]);
+  }, [repoPath, status, isActive, fetchClassification]);
 
   // ── Report tab status to parent (for dot indicators) ─────────────
   useEffect(() => {

@@ -237,8 +237,8 @@ export function BranchesView() {
           )}
 
           {/* Scrollable branch lists */}
-          <ScrollArea className="flex-1 min-h-0 select-none">
-            <div className="px-4 py-3 space-y-4 overflow-hidden">
+          <ScrollArea className="flex-1 min-h-0 select-none [&>div>div]:!overflow-x-hidden">
+            <div className="px-4 py-3 space-y-4 overflow-hidden w-full">
               {/* Kept Branches (collapsible) */}
               {(() => {
                 const remainingKept = classification.kept.filter(({ name }) => !promoted.has(name));
@@ -307,7 +307,7 @@ export function BranchesView() {
               {(() => {
                 const totalSafe = classification.safe.length + promoted.size;
                 return (
-                  <div className="rounded-lg border border-green-500/30 bg-green-500/5 overflow-hidden">
+                  <div className="rounded-lg border border-green-500/30 bg-green-500/5 overflow-hidden min-w-0">
                     <div className="flex items-center justify-between px-3 py-2">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="h-4 w-4 text-green-500" />
