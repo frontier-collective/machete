@@ -2,6 +2,49 @@
 
 All notable changes to Machete are documented here.
 
+## [0.4.0] - 2026-03-14
+
+### Features
+
+- Add **Machete Desktop App** — a native Tauri-based GUI for macOS (and other platforms) built with React and shadcn/ui, installable as `Machete.app`
+- Add commit graph with branch visualization, virtual commit log, and commit detail view
+- Add staging area with optimistic staging, stash management, and cherry-pick support
+- Add branch management with checkout, create-branch, pull/fetch, merge/rebase dialogs, and context menus
+- Add PR view with open and closed/merged pull requests, redesigned layout, and AI-assisted PR creation
+- Add release view for managing version bumps and changelogs from the GUI
+- Add keyboard shortcuts throughout the GUI with tooltips showing keybinding hints
+- Add remote tracking indicators and branch list tooltips
+- Add markdown rendering and popover support in the GUI
+- Add `machete status` command — shows branch, staged/unstaged files, and ahead/behind counts; supports `--json`
+- Add `machete gui` command — launches the installed Machete desktop app (or starts a dev server with `--dev`)
+- Add `--json` output mode to `commit`, `pr`, `prune`, `release`, and `config --list` commands for programmatic/GUI consumption
+- Add DMG build and GitHub release asset upload support to the `release` command
+
+### Improvements
+
+- Virtualize the diff viewer and commit log for performance with large repositories
+- Split React context into targeted slices to avoid unnecessary re-renders across the GUI
+- Persist panel layout (sidebar width, split pane sizes, open sections) per repository across sessions
+- Add configurable diff context lines setting in the GUI
+
+### Fixes
+
+- Fix copy-only diffs by synthesizing a new-file diff when no hunks are present
+- Improve CLI and git binary resolution, error boundaries, and surface actionable error messages in the GUI
+
+### Documentation
+
+- Add `INSTALLATION.md` with setup instructions for both the CLI and the desktop app, including a macOS Gatekeeper workaround
+- Update `README.md` and `CLAUDE.md` to document the desktop app
+
+### Internal
+
+- Add GitHub Actions workflows for CI and cross-platform releases (macOS arm64/x86, Linux x64/arm64, Windows)
+- Cross-compile macOS Intel builds on ARM runners; drop AppImage from Linux ARM (no `xdg-open` support)
+- Build and verify DMG artifact in CI; document Gatekeeper workaround in workflow
+- Bump `actions/checkout` and `actions/setup-node` to v5 across all workflows
+
+
 ## [0.3.0] - 2026-03-13
 
 ### Features
