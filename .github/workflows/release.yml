@@ -30,42 +30,42 @@ jobs:
             bundles: dmg
             artifact: "app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
-          # # macOS Intel
-          # - os: macos-13
-          #   target: x86_64-apple-darwin
-          #   bundles: dmg
-          #   artifact: "app/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
+          # macOS Intel
+          - os: macos-13
+            target: x86_64-apple-darwin
+            bundles: dmg
+            artifact: "app/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
 
-          # # Linux x64
-          # - os: ubuntu-22.04
-          #   target: x86_64-unknown-linux-gnu
-          #   bundles: deb,appimage
-          #   artifact: |
-          #     app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
-          #     app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+          # Linux x64
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+            artifact: |
+              app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+              app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
 
-          # # Linux ARM
-          # - os: ubuntu-22.04-arm
-          #   target: aarch64-unknown-linux-gnu
-          #   bundles: deb,appimage
-          #   artifact: |
-          #     app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb
-          #     app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+          # Linux ARM
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: deb,appimage
+            artifact: |
+              app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb
+              app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
 
-          # # Windows x64
-          # - os: windows-latest
-          #   target: x86_64-pc-windows-msvc
-          #   bundles: nsis,msi
-          #   artifact: |
-          #     app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
-          #     app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+          # Windows x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+            artifact: |
+              app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+              app/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
 
-          # # Windows ARM
-          # - os: windows-latest
-          #   target: aarch64-pc-windows-msvc
-          #   bundles: nsis
-          #   artifact: |
-          #     app/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
+          # Windows ARM
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            bundles: nsis
+            artifact: |
+              app/src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe
 
     runs-on: ${{ matrix.os }}
 
