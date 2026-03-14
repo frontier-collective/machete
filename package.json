@@ -1,6 +1,6 @@
 {
   "name": "@frontier-collective/machete",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "A sharp CLI toolset for managing git repositories",
   "type": "module",
   "main": "dist/index.js",
