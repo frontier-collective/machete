@@ -339,21 +339,28 @@ function AboutDialog({
                 ✓ Update installed — restarting...
               </p>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={update.checkForUpdate}
-                disabled={update.checking}
-              >
-                {update.checking ? (
-                  <>
-                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
-                    Checking...
-                  </>
-                ) : (
-                  "Check for Updates"
+              <div className="flex flex-col items-center gap-2">
+                {update.upToDate && (
+                  <p className="text-sm text-muted-foreground">
+                    You're up to date!
+                  </p>
                 )}
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={update.checkForUpdate}
+                  disabled={update.checking}
+                >
+                  {update.checking ? (
+                    <>
+                      <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                      Checking...
+                    </>
+                  ) : (
+                    "Check for Updates"
+                  )}
+                </Button>
+              </div>
             )}
             {update.error && (
               <p className="text-xs text-destructive">{update.error}</p>

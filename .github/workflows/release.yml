@@ -27,19 +27,19 @@ jobs:
           # macOS Apple Silicon
           - os: macos-latest
             target: aarch64-apple-darwin
-            bundles: dmg,updater
+            bundles: app,dmg
             artifact: "app/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # macOS Intel (cross-compiled on ARM runner)
           - os: macos-latest
             target: x86_64-apple-darwin
-            bundles: dmg,updater
+            bundles: app,dmg
             artifact: "app/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # Linux x64
           - os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
-            bundles: deb,appimage,updater
+            bundles: deb,appimage
             artifact: |
               app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
               app/src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
@@ -47,7 +47,7 @@ jobs:
           # Linux ARM (deb only — AppImage lacks xdg-open on ARM runners)
           - os: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            bundles: deb,updater
+            bundles: deb
             artifact: "app/src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb"
 
           # Windows x64
@@ -119,7 +119,7 @@ jobs:
         with:
           projectPath: app
           tauriScript: npm run tauri
-          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+          args: --target ${{ matrix.target }} ${{ matrix.bundles && format('--bundles {0}', matrix.bundles) || '' }}
           tagName: ${{ env.TAG }}
           releaseName: "Machete ${{ env.TAG }}"
           releaseBody: ""

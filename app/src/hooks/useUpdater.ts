@@ -21,6 +21,8 @@ export interface UpdateState {
   error: string | null;
   /** Whether the user dismissed the update notification */
   dismissed: boolean;
+  /** Whether the last manual check confirmed we're up to date */
+  upToDate: boolean;
   /** Manually trigger an update check */
   checkForUpdate: () => Promise<void>;
   /** Download and install the available update */
@@ -41,6 +43,7 @@ export function useUpdater(): UpdateState {
   const [readyToInstall, setReadyToInstall] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
+  const [upToDate, setUpToDate] = useState(false);
 
   // Track which version was dismissed so we don't re-show it
   const dismissedVersion = useRef<string | null>(null);
@@ -81,6 +84,7 @@ export function useUpdater(): UpdateState {
   const manualCheck = useCallback(async () => {
     setChecking(true);
     setError(null);
+    setUpToDate(false);
     try {
       const update = await check();
       lastCheckTime.current = Date.now();
@@ -97,6 +101,7 @@ export function useUpdater(): UpdateState {
         setAvailable(null);
         setVersion(null);
         setNotes(null);
+        setUpToDate(true);
       }
     } catch (e) {
       setError(String(e));
@@ -181,6 +186,7 @@ export function useUpdater(): UpdateState {
     readyToInstall,
     error,
     dismissed,
+    upToDate,
     checkForUpdate: manualCheck,
     downloadAndInstall,
     dismiss,
