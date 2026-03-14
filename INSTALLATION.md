@@ -70,6 +70,17 @@ rm -rf ~/.machete  # optional: remove global config
 2. Drag **Machete.app** into `/Applications`
 3. Open Machete and select a git repository folder
 
+### Unsigned app (macOS Gatekeeper)
+
+The DMG is not code-signed, so macOS will block it on first launch. To allow it, either:
+
+- **Option A:** Right-click the app > **Open** > click **Open** in the dialog (one-time only)
+- **Option B:** Go to **System Settings > Privacy & Security**, scroll to the Security section, and click **Open Anyway**
+- **Option C:** Strip the quarantine attribute before opening:
+  ```bash
+  xattr -cr /Applications/Machete.app
+  ```
+
 ### What works without the CLI
 
 The desktop app talks directly to git for core operations. These features work out of the box:

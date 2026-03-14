@@ -83,3 +83,4 @@ jobs:
         with:
           name: machete-macos-arm64
           path: app/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
