@@ -25,7 +25,7 @@ import {
   HelpCircle,
   X,
 } from "lucide-react";
-import { useRepoPath, useStatus, useRepoMetadata } from "@/hooks/useRepo";
+import { useRepoPath, useStatus, useRepoMetadata, usePullRequests } from "@/hooks/useRepo";
 import { useKeyboardShortcuts, type ShortcutDef } from "@/hooks/useKeyboardShortcuts";
 import type { PrContext, GithubPr, RemoteInfo } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -50,25 +50,44 @@ import remarkBreaks from "remark-breaks";
 type ViewState = "intro" | "list" | "create";
 type BodyTab = "edit" | "preview";
 
-// Module-level cache so PR data survives sheet close/reopen
+// Module-level cache so PR data survives sheet close/reopen (also backed by localStorage for app restart)
 const prCache: Record<string, { prs: GithubPr[] }> = {};
+
+function loadPrCache(repoPath: string): GithubPr[] | undefined {
+  if (prCache[repoPath]) return prCache[repoPath].prs;
+  try {
+    const raw = localStorage.getItem(`machete:prList:${repoPath}`);
+    if (raw) {
+      const prs = JSON.parse(raw) as GithubPr[];
+      prCache[repoPath] = { prs };
+      return prs;
+    }
+  } catch { /* ignore */ }
+  return undefined;
+}
+
+function savePrCache(repoPath: string, prs: GithubPr[]) {
+  prCache[repoPath] = { prs };
+  try { localStorage.setItem(`machete:prList:${repoPath}`, JSON.stringify(prs)); } catch { /* ignore */ }
+}
 
 export function PrView() {
   const { repoPath } = useRepoPath();
   const { status } = useStatus();
   const { defaultBranch, protectedBranches: metadataProtected } = useRepoMetadata();
+  const { addPr } = usePullRequests();
 
   // View navigation — always start on intro
-  const cached = repoPath ? prCache[repoPath] : undefined;
+  const cachedPrs = repoPath ? loadPrCache(repoPath) : undefined;
   const [view, setView] = useState<ViewState>("intro");
 
-  // Existing PRs — restore from cache if available
-  const [prs, setPrsRaw] = useState<GithubPr[]>(cached?.prs ?? []);
+  // Existing PRs — restore from cache if available (module-level + localStorage)
+  const [prs, setPrsRaw] = useState<GithubPr[]>(cachedPrs ?? []);
   const prsRef = useRef(prs);
   const setPrs = useCallback((p: GithubPr[]) => {
     setPrsRaw(p);
     prsRef.current = p;
-    if (repoPath) prCache[repoPath] = { prs: p };
+    if (repoPath) savePrCache(repoPath, p);
   }, [repoPath]);
 
   const [prsLoading, setPrsLoading] = useState(false);
@@ -145,10 +164,10 @@ export function PrView() {
   useEffect(() => {
     hasFetchedPrs.current = false;
     hasLoadedContext.current = false;
-    const c = repoPath ? prCache[repoPath] : undefined;
+    const cached = repoPath ? loadPrCache(repoPath) : undefined;
     setView("intro");
-    setPrsRaw(c?.prs ?? []);
-    prsRef.current = c?.prs ?? [];
+    setPrsRaw(cached ?? []);
+    prsRef.current = cached ?? [];
     setPrsError(null);
     setContext(null);
     setBase("");
@@ -253,6 +272,27 @@ export function PrView() {
         draft,
       });
       setPrUrl(url);
+
+      // Optimistically add to sidebar PR indicators
+      const prNumber = parseInt(url.split("/").pop() || "0", 10);
+      addPr({
+        number: prNumber,
+        title,
+        state: "OPEN",
+        isDraft: draft,
+        headRefName: status?.branch ?? "",
+        baseRefName: base,
+        author: { login: "" },
+        url,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        additions: 0,
+        deletions: 0,
+        changedFiles: 0,
+        reviewDecision: "",
+        labels: [],
+        comments: [],
+      });
     } catch (e) {
       setCreateError(String(e));
     } finally {
@@ -284,6 +324,12 @@ export function PrView() {
   // ─── Helpers ────────────────────────────────────────────────────
 
   const currentBranchPr = prs.find((pr) => pr.headRefName === status?.branch);
+
+  // PR counts by state
+  const openCount = prs.filter((pr) => pr.state === "OPEN" && !pr.isDraft).length;
+  const draftCount = prs.filter((pr) => pr.state === "OPEN" && pr.isDraft).length;
+  const mergedCount = prs.filter((pr) => pr.state === "MERGED").length;
+  const closedCount = prs.filter((pr) => pr.state === "CLOSED").length;
 
   const resetCreate = () => {
     setPrUrl(null);
@@ -407,7 +453,7 @@ export function PrView() {
         <div className="flex gap-2 mt-2">
           <Button variant="outline" onClick={() => setView("list")}>
             <Eye className="mr-2 h-4 w-4" />
-            View PRs{prs.length > 0 ? ` (${prs.length})` : ""}
+            View PRs{openCount + draftCount > 0 ? ` (${openCount + draftCount})` : ""}
           </Button>
           <Button onClick={() => setView("create")}>
             <Plus className="mr-2 h-4 w-4" />
@@ -420,13 +466,7 @@ export function PrView() {
           {prsLoading && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Scanning for open PRs...
-            </div>
-          )}
-
-          {!prsLoading && prs.length > 0 && !currentBranchPr && (
-            <div className="text-xs text-muted-foreground">
-              {prs.length} open PR{prs.length === 1 ? "" : "s"} in this repo
+              Scanning for PRs...
             </div>
           )}
 
@@ -435,6 +475,42 @@ export function PrView() {
               {prsError}
             </div>
           )}
+
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            {prs.length === 0 ? (
+              <span>{prsLoading ? "" : "0 pull requests"}</span>
+            ) : (
+              <>
+                {openCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-green-500" />
+                    {openCount} open
+                  </span>
+                )}
+                {draftCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    {openCount > 0 && <span className="text-border">·</span>}
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                    {draftCount} draft
+                  </span>
+                )}
+                {mergedCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    {(openCount > 0 || draftCount > 0) && <span className="text-border">·</span>}
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-purple-500" />
+                    {mergedCount} merged
+                  </span>
+                )}
+                {closedCount > 0 && (
+                  <span className="flex items-center gap-1">
+                    {(openCount > 0 || draftCount > 0 || mergedCount > 0) && <span className="text-border">·</span>}
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-red-500" />
+                    {closedCount} closed
+                  </span>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     );

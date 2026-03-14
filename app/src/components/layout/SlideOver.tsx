@@ -25,7 +25,7 @@ export function SlideOver({ title, open, onClose, raw, children }: SlideOverProp
       </div>
       {/* Content */}
       {raw ? (
-        <div className="flex-1 min-h-0 flex flex-col">{children}</div>
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{children}</div>
       ) : (
         <ScrollArea className="flex-1">
           <div className="p-4">{children}</div>

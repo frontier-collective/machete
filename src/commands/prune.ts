@@ -81,10 +81,11 @@ export async function runPrune(args: ParsedArgs): Promise<void> {
   const staleBranches: string[] = [];
 
   for (const branch of localBranches) {
-    if (branch === currentBranch) {
-      kept.push({ name: branch, reason: "current" });
-    } else if (config.protectedBranches.includes(branch)) {
+    if (config.protectedBranches.includes(branch)) {
+      // Protected branches are always listed as protected, even if current
       protectedSkipped.push(branch);
+    } else if (branch === currentBranch) {
+      kept.push({ name: branch, reason: "current" });
     } else if (remoteBranches.includes(branch)) {
       kept.push({ name: branch, reason: "on remote" });
     } else {

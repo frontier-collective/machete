@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { RepoStatus, PruneClassification } from "@/types";
+import type { RepoStatus, PruneClassification, GithubPr } from "@/types";
 import type { RepoLayout } from "@/hooks/useRepoLayout";
 
 // ─── Split contexts ─────────────────────────────────────────────────
@@ -41,6 +41,13 @@ export interface RepoMetadataContextValue {
   protectedBranches: string[];
 }
 
+export interface PullRequestsContextValue {
+  /** Map from branch name → open PR (includes drafts). Only OPEN/DRAFT PRs. */
+  prByBranch: Map<string, GithubPr>;
+  /** Optimistically add a newly-created PR to the map (and trigger background refresh). */
+  addPr: (pr: GithubPr) => void;
+}
+
 export const RepoPathContext = createContext<RepoPathContextValue>({
   repoPath: null,
   setRepoPath: () => {},
@@ -76,6 +83,23 @@ export const RepoMetadataContext = createContext<RepoMetadataContextValue>({
   protectedBranches: ["main", "master", "develop"],
 });
 
+export const PullRequestsContext = createContext<PullRequestsContextValue>({
+  prByBranch: new Map(),
+  addPr: () => {},
+});
+
+export interface TabLoadingContextValue {
+  /** Call when an async operation starts (increments counter) */
+  startLoading: () => void;
+  /** Call when an async operation ends (decrements counter) */
+  stopLoading: () => void;
+}
+
+export const TabLoadingContext = createContext<TabLoadingContextValue>({
+  startLoading: () => {},
+  stopLoading: () => {},
+});
+
 // ─── Targeted hooks (prefer these) ─────────────────────────────────
 
 export function useRepoPath() {
@@ -100,6 +124,14 @@ export function useClassification() {
 
 export function useRepoMetadata() {
   return useContext(RepoMetadataContext);
+}
+
+export function usePullRequests() {
+  return useContext(PullRequestsContext);
+}
+
+export function useTabLoading() {
+  return useContext(TabLoadingContext);
 }
 
 // ─── Legacy combined context ────────────────────────────────────────

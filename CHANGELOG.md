@@ -2,6 +2,33 @@
 
 All notable changes to Machete are documented here.
 
+## [0.5.0] - 2026-03-14
+
+### Features
+
+- Add a **multi-repo tab system** — open multiple repositories side-by-side with drag-to-reorder, custom tab labels, and full session persistence across restarts
+- Add **status indicators** on tabs showing dirty (uncommitted changes) and unpushed commit states at a glance
+- Add **PR indicators** on the branch list, surfacing open pull requests via `gh` CLI without leaving the app
+- Add **optimistic UI updates** — checking out a branch updates its classification instantly, and creating a PR reflects in the sidebar immediately
+- Add **arrow key navigation** for the commit log and file diff panels
+- Add **About dialog** with native menu integration and app health checks
+- Add **branch promote-to-safe** action to permanently mark a branch as protected from pruning
+- Add **`⌘↑` shortcut** to quickly jump to the top of the commit log
+
+### Improvements
+
+- Show a **loading spinner** per tab during background operations (fetch, classification, etc.)
+- Cache branch classification in `localStorage` so the branch list renders immediately on load, then refreshes in the background
+- Skip the intro screen automatically when a session with open tabs is restored
+- Improve keyboard shortcut handling so inactive tabs never intercept keystrokes
+
+### Fixes
+
+- Fix protected branches being incorrectly listed as "current" instead of "protected" during prune when both conditions apply
+- Fix scroll overflow in the branch and commit panels
+- Ensure branch classification refreshes correctly on initial load
+
+
 ## [0.4.0] - 2026-03-14
 
 ### Features
